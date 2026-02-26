@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  apk-analyzer:
+    build: .
+    container_name: sportscamera-analyzer
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true

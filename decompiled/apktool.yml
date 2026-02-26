@@ -1,0 +1,68 @@
+version: 2.9.3
+apkFileName: sportscamera.apk
+isFrameworkApk: false
+usesFramework:
+  ids:
+  - 1
+  tag: null
+sdkInfo:
+  minSdkVersion: 16
+  targetSdkVersion: 22
+packageInfo:
+  forcedPackageId: 127
+  renameManifestPackage: null
+versionInfo:
+  versionCode: 353
+  versionName: 3.9.3
+resourcesAreCompressed: false
+sharedLibrary: false
+sparseResources: false
+unknownFiles:
+  LICENSE-2.0.txt: 8
+  build-data.properties: 8
+  builddef.lst: 8
+  isoparser-default.properties: 8
+  mistats_version: 8
+  miui_push_version: 8
+  protobuf.meta: 8
+  push_version: 8
+  version.txt: 8
+  HACKED-META-INF/services/io.grpc.ManagedChannelProvider: 8
+  HACKED-META-INF/services/io.grpc.NameResolverProvider: 8
+  com/fasterxml/jackson/core/json/VERSION.txt: 8
+  com/google/api/client/googleapis/google.jks: 8
+  com/google/api/client/repackaged/org/apache/commons/codec/language/dmrules.txt: 8
+  com/sina/weibo/sdk/net/cacert_cn.cer: 8
+  com/sina/weibo/sdk/net/cacert_com.cer: 8
+  com/xiaomi/xy/sportscamera/camera/activity/QZCameraActivity.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/CameraMediaAdapter.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/CameraMediaItemAdapter.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/QZAlbumActivity.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/QZAlbumDownloadFragment.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/QZCameraDownloadActivity.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/QZCameraMediaShowActivity.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/QZDetailGridViewActivity.kt: 8
+  com/xiaomi/xy/sportscamera/camera/album/QZPhotoSetDetailShowActivity.kt: 8
+  com/xiaomi/xy/sportscamera/camera/filemanager/j22file/QZCameraFileControl.kt: 8
+  com/xiaomi/xy/sportscamera/camera/filemanager/j22file/QZCameraFileControlListener.kt: 8
+  com/xiaomi/xy/sportscamera/camera/filemanager/j22file/QZCameraFileControlUtil.kt: 8
+  com/xiaomi/xy/sportscamera/camera/filemanager/j22file/QZCameraFileDownloadUtil.kt: 8
+  com/xiaomi/xy/sportscamera/camera/filemanager/j22file/QZCameraFileTask.kt: 8
+  com/xiaomi/xy/sportscamera/camera/filemanager/j22file/QZCollectionUtil.kt: 8
+  error_prone/Annotations.gwt.xml: 8
+  jsr305_annotations/Jsr305_annotations.gwt.xml: 8
+  third_party/java_src/error_prone/project/annotations/Annotations.gwt.xml: 8
+  third_party/java_src/error_prone/project/annotations/Google_internal.gwt.xml: 8
+doNotCompress:
+- resources.arsc
+- png
+- aac
+- gif
+- jpg
+- ogg
+- res/raw/nv21torgb.bc
+- res/raw/poppylove.acv
+- res/raw/rgbtoyuv420sp.bc
+- res/raw/rotate90.bc
+- res/raw/rotateandresample.bc
+- res/raw/yuv420ptorgb.bc
