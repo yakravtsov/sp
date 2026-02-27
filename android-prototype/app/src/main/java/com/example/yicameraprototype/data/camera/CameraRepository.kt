@@ -478,14 +478,17 @@ class CameraRepository(private val context: Context) {
     private fun transition(next: ConnectionState) {
         _uiState.update { it.copy(connectionState = next, error = null) }
         log("CameraRepository", Severity.Info, "state->$next")
-        if (next == ConnectionState.Error || next == ConnectionState.Reconnecting) {
-            onLiveStateChanged(LiveState.Error, "connection state $next")
-        }
     }
 
     private fun setError(message: String) {
+        val shouldMarkLiveError = when (uiState.value.liveState) {
+            LiveState.Buffering, LiveState.Playing -> true
+            LiveState.Stopped, LiveState.Error -> false
+        }
         _uiState.update { it.copy(connectionState = ConnectionState.Error, error = message) }
-        onLiveStateChanged(LiveState.Error, message)
+        if (shouldMarkLiveError) {
+            onLiveStateChanged(LiveState.Error, message)
+        }
         log("CameraRepository", Severity.Error, message)
     }
 
