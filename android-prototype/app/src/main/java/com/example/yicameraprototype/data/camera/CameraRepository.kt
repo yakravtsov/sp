@@ -78,9 +78,9 @@ class CameraRepository(private val context: Context) {
         val network = networkResult.getOrThrow()
         val reachability = binder.checkCameraReachability(
             network = network,
-            attempts = 3,
-            connectTimeoutMs = 2200,
-            retryDelayMs = 250
+            attempts = 8,
+            connectTimeoutMs = 2500,
+            retryDelayMs = 500
         )
         if (reachability.isFailure) {
             binder.unbind()

@@ -89,10 +89,7 @@ class CameraNetworkBinder(context: Context) {
             suspendCancellableCoroutine { continuation ->
                 val callback = object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        if (
-                            continuation.isActive &&
-                            isCameraReachable(network = network, attempts = 2, retryDelayMs = 200)
-                        ) {
+                        if (continuation.isActive) {
                             runCatching { connectivityManager.unregisterNetworkCallback(this) }
                             continuation.resume(Result.success(network))
                         }
