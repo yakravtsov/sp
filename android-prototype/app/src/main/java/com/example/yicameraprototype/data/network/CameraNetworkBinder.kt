@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.coroutines.resume
@@ -15,6 +16,13 @@ class CameraNetworkBinder(context: Context) {
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     suspend fun bindCameraNetwork(timeoutMs: Int = 7000, retries: Int = 3): Result<Network> {
+        connectivityManager.activeNetwork?.let { activeNetwork ->
+            if (isCameraReachable(network = activeNetwork)) {
+                connectivityManager.bindProcessToNetwork(activeNetwork)
+                return Result.success(activeNetwork)
+            }
+        }
+
         repeat(retries) {
             val result = requestWifiNetwork(timeoutMs)
             if (result.isSuccess) {
@@ -30,9 +38,14 @@ class CameraNetworkBinder(context: Context) {
         connectivityManager.bindProcessToNetwork(null)
     }
 
-    fun isCameraReachable(host: String = "192.168.42.1", port: Int = 7878): Boolean = runCatching {
-        Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), 1200)
+    fun isCameraReachable(
+        host: String = "192.168.42.1",
+        port: Int = 7878,
+        network: Network? = null
+    ): Boolean = runCatching {
+        val socket = network?.socketFactory?.createSocket() ?: Socket()
+        socket.use {
+            it.connect(InetSocketAddress(host, port), 1200)
         }
         true
     }.getOrElse { false }
@@ -43,32 +56,35 @@ class CameraNetworkBinder(context: Context) {
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
 
-        return suspendCancellableCoroutine { continuation ->
-            val callback = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    connectivityManager.unregisterNetworkCallback(this)
-                    if (continuation.isActive) {
-                        continuation.resume(Result.success(network))
+        return withTimeoutOrNull(timeoutMs.toLong() + 500L) {
+            suspendCancellableCoroutine { continuation ->
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        if (continuation.isActive && isCameraReachable(network = network)) {
+                            runCatching { connectivityManager.unregisterNetworkCallback(this) }
+                            continuation.resume(Result.success(network))
+                        }
+                    }
+
+                    override fun onUnavailable() {
+                        if (continuation.isActive) {
+                            continuation.resume(Result.failure(IllegalStateException("Wi‑Fi unavailable")))
+                        }
                     }
                 }
 
-                override fun onUnavailable() {
+                runCatching {
+                    connectivityManager.requestNetwork(request, callback, timeoutMs)
+                }.onFailure { error ->
                     if (continuation.isActive) {
-                        continuation.resume(Result.failure(IllegalStateException("Wi‑Fi unavailable")))
+                        continuation.resume(Result.failure(error))
                     }
                 }
-            }
 
-            runCatching {
-                connectivityManager.requestNetwork(request, callback, timeoutMs)
-            }.onFailure { error ->
-                if (continuation.isActive) {
-                    continuation.resume(Result.failure(error))
+                continuation.invokeOnCancellation {
+                    runCatching { connectivityManager.unregisterNetworkCallback(callback) }
                 }
             }
-            continuation.invokeOnCancellation {
-                runCatching { connectivityManager.unregisterNetworkCallback(callback) }
-            }
-        }
+        } ?: Result.failure(IllegalStateException("Wi‑Fi request timed out"))
     }
 }
