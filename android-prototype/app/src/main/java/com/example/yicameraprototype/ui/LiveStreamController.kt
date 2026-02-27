@@ -2,8 +2,8 @@ package com.example.yicameraprototype.ui
 
 import android.content.Context
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import com.example.yicameraprototype.domain.LiveState
@@ -21,17 +21,20 @@ class LiveStreamController(context: Context) {
                 when (playbackState) {
                     Player.STATE_BUFFERING -> stateListener?.invoke(LiveState.Buffering, null)
                     Player.STATE_READY -> {
-                        if (playWhenReady) stateListener?.invoke(LiveState.Playing, null)
+                        if (playWhenReady) {
+                            stateListener?.invoke(LiveState.Playing, null)
+                        }
                     }
-
-                    Player.STATE_ENDED, Player.STATE_IDLE -> stateListener?.invoke(LiveState.Stopped, null)
+                    Player.STATE_ENDED,
+                    Player.STATE_IDLE -> stateListener?.invoke(LiveState.Stopped, null)
                 }
+            }
 
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    stateListener?.invoke(LiveState.Error, error.message)
-                }
-            })
-        }
+            override fun onPlayerError(error: PlaybackException) {
+                stateListener?.invoke(LiveState.Error, error.message)
+            }
+        })
+    }
 
     fun setStateListener(listener: (LiveState, String?) -> Unit) {
         stateListener = listener
