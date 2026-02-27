@@ -3,19 +3,22 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val compileSdkVersion = rootProject.extra["compileSdk"] as Int
-val minSdkVersion = rootProject.extra["minSdk"] as Int
-val targetSdkVersion = rootProject.extra["targetSdk"] as Int
+fun extraInt(name: String): Int = rootProject.extra[name]?.toString()?.toInt()
+    ?: error("Expected integer Gradle extra property: $name")
+
+val compileSdkInt = extraInt("compileSdk")
+val minSdkInt = extraInt("minSdk")
+val targetSdkInt = extraInt("targetSdk")
 val composeCompiler = rootProject.extra["composeCompiler"] as String
 
 android {
     namespace = "com.example.yicameraprototype"
-    compileSdk = compileSdkVersion
+    compileSdk = compileSdkInt
 
     defaultConfig {
         applicationId = "com.example.yicameraprototype"
-        minSdk = minSdkVersion
-        targetSdk = targetSdkVersion
+        minSdk = minSdkInt
+        targetSdk = targetSdkInt
         versionCode = 1
         versionName = "0.2"
     }
