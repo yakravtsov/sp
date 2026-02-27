@@ -1,17 +1,255 @@
-> Task :app:checkDevDebugAarMetadata
-WARNING: [Processor] Library '/home/yakravtsov/.gradle/caches/modules-2/files-2.1/androidx.media3/media3-ui/1.4.1/95308f5a6ed8f6c11afbfc321a724f0e2b81560e/media3-ui-1.4.1.aar' contains references to both AndroidX and old support library. This seems like the library is partially migrated. Jetifier will try to rewrite the library anyway.
- Example of androidX reference: 'androidx/media3/ui/PlayerNotificationManager'
- Example of support library reference: 'android/support/v4/media/session/MediaSessionCompat$Token'
-[Processor] Library '/home/yakravtsov/.gradle/caches/modules-2/files-2.1/androidx.media3/media3-ui/1.4.1/95308f5a6ed8f6c11afbfc321a724f0e2b81560e/media3-ui-1.4.1.aar' contains references to both AndroidX and old support library. This seems like the library is partially migrated. Jetifier will try to rewrite the library anyway.
+> Task :app:mergeExtDexDevDebug
+AGPBI: {"kind":"error","text":"java.lang.OutOfMemoryError: Java heap space","sources":[{}],"tool":"D8"}
+com.android.builder.dexing.DexArchiveMergerException: Error while merging dex archives: 
+	at com.android.builder.dexing.D8DexArchiveMerger.getMergingExceptionToRethrow(D8DexArchiveMerger.java:220)
+	at com.android.builder.dexing.D8DexArchiveMerger.mergeDexArchives(D8DexArchiveMerger.java:208)
+	at com.android.build.gradle.internal.tasks.DexMergingWorkAction.merge(DexMergingTask.kt:894)
+	at com.android.build.gradle.internal.tasks.DexMergingWorkAction.run(DexMergingTask.kt:846)
+	at com.android.build.gradle.internal.profile.ProfileAwareWorkAction.execute(ProfileAwareWorkAction.kt:74)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:62)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:209)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:204)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:166)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:59)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:174)
+	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:194)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:127)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:169)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:132)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:164)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:133)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Unknown Source)
+	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.base/java.lang.Thread.run(Unknown Source)
+Caused by: com.android.tools.r8.CompilationFailedException: Compilation failed to complete
+	at Version.fakeStackEntry(Version_8.6.27.java:0)
+	at com.android.tools.r8.T.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.internal.wo.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:82)
+	at com.android.tools.r8.internal.wo.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:32)
+	at com.android.tools.r8.internal.wo.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:31)
+	at com.android.tools.r8.internal.wo.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:2)
+	at com.android.tools.r8.D8.run(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:11)
+	at com.android.builder.dexing.D8DexArchiveMerger.mergeDexArchives(D8DexArchiveMerger.java:206)
+	... 37 more
+Caused by: java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.nio.HeapByteBuffer.<init>(Unknown Source)
+	at java.base/java.nio.ByteBuffer.allocate(Unknown Source)
+	at com.android.tools.r8.ByteBufferProvider.acquireByteBuffer(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:1)
+	at com.android.tools.r8.DexIndexedConsumer.acquireByteBuffer(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd)
+	at com.android.tools.r8.dex.y.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:1)
+	at com.android.tools.r8.dex.y.c(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.dex.y.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:7)
+	at com.android.tools.r8.dex.y.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:36)
+	at com.android.tools.r8.graph.N2$m.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.graph.N2$b.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:8)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:28)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:687)
+	at com.android.tools.r8.dex.L$$Lambda/0x0000000101d32568.accept(Unknown Source)
+java.lang.OutOfMemoryError: Java heap space
 
 
-> Task :app:processDevDebugResources FAILED
-AGPBI: {"kind":"error","text":"Android resource linking failed","sources":[{}],"original":"ERROR: AAPT: error: resource style/Theme.Material3.DayNight.NoActionBar (aka com.example.yicameraprototype.dev.debug:style/Theme.Material3.DayNight.NoActionBar) not found.\nerror: failed linking references.\n\n    ","tool":"AAPT"}
-ERROR: AAPT: error: resource style/Theme.Material3.DayNight.NoActionBar (aka com.example.yicameraprototype.dev.debug:style/Theme.Material3.DayNight.NoActionBar) not found.
-error: failed linking references.
+	at java.base/java.lang.Iterable.forEach(Unknown Source)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:518)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:289)
+	at com.android.tools.r8.dex.k.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.dex.k$$Lambda/0x0000000101d2e9f8.get(Unknown Source)
+	at com.android.tools.r8.internal.ij0.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:63)
+	at com.android.tools.r8.dex.k.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:803)
+	at com.android.tools.r8.dex.k.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:34)
+	at com.android.tools.r8.dex.k$$Lambda/0x0000000101d24e48.apply(Unknown Source)
+	at com.android.tools.r8.internal.Gi0.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:2)
+	at com.android.tools.r8.internal.Gi0$$Lambda/0x0000000101c0b4b0.a(Unknown Source)
+	at com.android.tools.r8.internal.Gi0.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:17)
+	at com.android.tools.r8.internal.Gi0$$Lambda/0x0000000101b56ae0.call(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinTask$AdaptedInterruptibleCallable.compute(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinTask.doExec(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinPool.scan(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinPool.runWorker(Unknown Source)
 
-Android resource linking failed
-ERROR: AAPT: error: resource style/Theme.Material3.DayNight.NoActionBar (aka com.example.yicameraprototype.dev.debug:style/Theme.Material3.DayNight.NoActionBar) not found.
-error: failed linking references.
+Caused by: com.android.tools.r8.CompilationFailedException: Compilation failed to complete
+
+
+Caused by: java.lang.OutOfMemoryError: Java heap space
+
+
+
+> Task :app:mergeExtDexDevDebug FAILED
+
+Execution failed for task ':app:mergeExtDexDevDebug'.
+> A failure occurred while executing com.android.build.gradle.internal.tasks.DexMergingTaskDelegate
+   > There was a failure while executing work items
+      > A failure occurred while executing com.android.build.gradle.internal.tasks.DexMergingWorkAction
+         > com.android.builder.dexing.DexArchiveMergerException: Error while merging dex archives:
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:mergeExtDexDevDebug'.
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:130)
+	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:289)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:128)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:41)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:209)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:204)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:166)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.base/java.lang.Thread.run(Unknown Source)
+Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing com.android.build.gradle.internal.tasks.DexMergingTaskDelegate
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:176)
+	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:194)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:127)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:169)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:263)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:132)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:164)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:133)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Unknown Source)
+	at java.base/java.util.concurrent.FutureTask.run(Unknown Source)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.base/java.lang.Thread.run(Unknown Source)
+Caused by: org.gradle.workers.WorkerExecutionException: There was a failure while executing work items
+	at org.gradle.workers.internal.DefaultWorkerExecutor.workerExecutionException(DefaultWorkerExecutor.java:223)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.await(DefaultWorkerExecutor.java:205)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:72)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:209)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:204)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:166)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:59)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:174)
+	... 17 more
+Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing com.android.build.gradle.internal.tasks.DexMergingWorkAction
+	at org.gradle.workers.internal.DefaultWorkerExecutor$WorkItemExecution.waitForCompletion(DefaultWorkerExecutor.java:287)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.lambda$waitForItemsAndGatherFailures$2(DefaultAsyncWorkTracker.java:130)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:335)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:318)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLock(DefaultWorkerLeaseService.java:323)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:126)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:88)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForAll(DefaultAsyncWorkTracker.java:78)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForCompletion(DefaultAsyncWorkTracker.java:66)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.await(DefaultWorkerExecutor.java:203)
+	... 30 more
+Caused by: java.lang.RuntimeException: com.android.builder.dexing.DexArchiveMergerException: Error while merging dex archives: 
+	at com.android.build.gradle.internal.tasks.DexMergingWorkAction.merge(DexMergingTask.kt:909)
+	at com.android.build.gradle.internal.tasks.DexMergingWorkAction.run(DexMergingTask.kt:846)
+	at com.android.build.gradle.internal.profile.ProfileAwareWorkAction.execute(ProfileAwareWorkAction.kt:74)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:62)
+	... 29 more
+Caused by: com.android.builder.dexing.DexArchiveMergerException: Error while merging dex archives: 
+	at com.android.builder.dexing.D8DexArchiveMerger.getMergingExceptionToRethrow(D8DexArchiveMerger.java:220)
+	at com.android.builder.dexing.D8DexArchiveMerger.mergeDexArchives(D8DexArchiveMerger.java:208)
+	at com.android.build.gradle.internal.tasks.DexMergingWorkAction.merge(DexMergingTask.kt:894)
+	... 36 more
+Caused by: com.android.tools.r8.CompilationFailedException: Compilation failed to complete
+	at Version.fakeStackEntry(Version_8.6.27.java:0)
+	at com.android.tools.r8.T.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.internal.wo.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:82)
+	at com.android.tools.r8.internal.wo.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:32)
+	at com.android.tools.r8.internal.wo.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:31)
+	at com.android.tools.r8.internal.wo.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:2)
+	at com.android.tools.r8.D8.run(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:11)
+	at com.android.builder.dexing.D8DexArchiveMerger.mergeDexArchives(D8DexArchiveMerger.java:206)
+	... 37 more
+Caused by: java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.nio.HeapByteBuffer.<init>(Unknown Source)
+	at java.base/java.nio.ByteBuffer.allocate(Unknown Source)
+	at com.android.tools.r8.ByteBufferProvider.acquireByteBuffer(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:1)
+	at com.android.tools.r8.DexIndexedConsumer.acquireByteBuffer(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd)
+	at com.android.tools.r8.dex.y.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:1)
+	at com.android.tools.r8.dex.y.c(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.dex.y.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:7)
+	at com.android.tools.r8.dex.y.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:36)
+	at com.android.tools.r8.graph.N2$m.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.graph.N2$b.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:8)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:28)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:687)
+	at com.android.tools.r8.dex.L$$Lambda/0x0000000101d32568.accept(Unknown Source)
+	at java.base/java.lang.Iterable.forEach(Unknown Source)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:518)
+	at com.android.tools.r8.dex.L.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:289)
+	at com.android.tools.r8.dex.k.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:5)
+	at com.android.tools.r8.dex.k$$Lambda/0x0000000101d2e9f8.get(Unknown Source)
+	at com.android.tools.r8.internal.ij0.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:63)
+	at com.android.tools.r8.dex.k.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:803)
+	at com.android.tools.r8.dex.k.b(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:34)
+	at com.android.tools.r8.dex.k$$Lambda/0x0000000101d24e48.apply(Unknown Source)
+	at com.android.tools.r8.internal.Gi0.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:2)
+	at com.android.tools.r8.internal.Gi0$$Lambda/0x0000000101c0b4b0.a(Unknown Source)
+	at com.android.tools.r8.internal.Gi0.a(R8_8.6.27_2b483f4303115918edda7132c8ba63c4d9e6cffd055ccfc732f40ca61c0029fd:17)
+	at com.android.tools.r8.internal.Gi0$$Lambda/0x0000000101b56ae0.call(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinTask$AdaptedInterruptibleCallable.compute(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinTask.doExec(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinPool.scan(Unknown Source)
+	at java.base/java.util.concurrent.ForkJoinPool.runWorker(Unknown Source)
 
 
