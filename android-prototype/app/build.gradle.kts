@@ -3,9 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val compileSdkVersion = rootProject.extra["compileSdk"] as Int
-val minSdkVersion = rootProject.extra["minSdk"] as Int
-val targetSdkVersion = rootProject.extra["targetSdk"] as Int
+val compileSdkVersion = rootProject.extra["compileSdk"].toString().toInt()
+val minSdkVersion = rootProject.extra["minSdk"].toString().toInt()
+val targetSdkVersion = rootProject.extra["targetSdk"].toString().toInt()
 val composeCompiler = rootProject.extra["composeCompiler"] as String
 
 android {
@@ -30,12 +30,12 @@ android {
 
     buildTypes {
         debug {
-            isMinifyEnabled = false
+            minifyEnabled = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = false
+            minifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
