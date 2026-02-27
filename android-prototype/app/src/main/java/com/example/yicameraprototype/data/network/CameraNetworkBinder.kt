@@ -41,14 +41,43 @@ class CameraNetworkBinder(context: Context) {
     fun isCameraReachable(
         host: String = "192.168.42.1",
         port: Int = 7878,
-        network: Network? = null
-    ): Boolean = runCatching {
-        val socket = network?.socketFactory?.createSocket() ?: Socket()
-        socket.use {
-            it.connect(InetSocketAddress(host, port), 1200)
+        network: Network? = null,
+        attempts: Int = 1,
+        connectTimeoutMs: Int = 1800,
+        retryDelayMs: Long = 0
+    ): Boolean = checkCameraReachability(
+        host = host,
+        port = port,
+        network = network,
+        attempts = attempts,
+        connectTimeoutMs = connectTimeoutMs,
+        retryDelayMs = retryDelayMs
+    ).isSuccess
+
+    fun checkCameraReachability(
+        host: String = "192.168.42.1",
+        port: Int = 7878,
+        network: Network? = null,
+        attempts: Int = 1,
+        connectTimeoutMs: Int = 1800,
+        retryDelayMs: Long = 0
+    ): Result<Unit> {
+        var lastError: Throwable? = null
+        repeat(attempts.coerceAtLeast(1)) { attempt ->
+            val result = runCatching {
+                val socket = network?.socketFactory?.createSocket() ?: Socket()
+                socket.use {
+                    it.connect(InetSocketAddress(host, port), connectTimeoutMs)
+                }
+            }
+            if (result.isSuccess) return Result.success(Unit)
+            lastError = result.exceptionOrNull()
+            if (retryDelayMs > 0 && attempt < attempts - 1) {
+                Thread.sleep(retryDelayMs)
+            }
         }
-        true
-    }.getOrElse { false }
+        return Result.failure(lastError ?: IllegalStateException("$host:$port is unreachable"))
+    }
 
     private suspend fun requestWifiNetwork(timeoutMs: Int): Result<Network> {
         val request = NetworkRequest.Builder()
@@ -60,7 +89,10 @@ class CameraNetworkBinder(context: Context) {
             suspendCancellableCoroutine { continuation ->
                 val callback = object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        if (continuation.isActive && isCameraReachable(network = network)) {
+                        if (
+                            continuation.isActive &&
+                            isCameraReachable(network = network, attempts = 2, retryDelayMs = 200)
+                        ) {
                             runCatching { connectivityManager.unregisterNetworkCallback(this) }
                             continuation.resume(Result.success(network))
                         }
