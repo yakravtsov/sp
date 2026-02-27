@@ -57,6 +57,8 @@ class MainActivity : ComponentActivity() {
                     Text("Connection: ${state.connectionState}")
                     Text("Model: ${state.model}, token=${state.token ?: "-"}")
                     Text("Live: ${state.liveState}, recording=${state.isRecording}")
+                    Text("Battery: ${state.batteryPercent?.toString() ?: "-"}% , adapter=${state.adapterConnected ?: "-"}")
+                    Text("Camera status: sd=${state.sdCardStatus ?: "-"}, app=${state.appStatus ?: "-"}")
                     Text("Flags: live=${state.sessionFlags.live}, sdformat=${state.sessionFlags.sdformat}, album=${state.sessionFlags.album}")
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
                     Settings(state.settings, vm::setSetting)
                     Files(
                         files = state.files,
+                        downloading = state.downloading,
                         refresh = vm::refreshFiles,
                         nextPage = vm::refreshFilesNextPage,
                         download = vm::download,
@@ -150,6 +153,7 @@ private fun Settings(settings: List<CameraSetting>, setValue: (String, String) -
 @Composable
 private fun Files(
     files: List<CameraFile>,
+    downloading: Map<String, Int>,
     refresh: () -> Unit,
     nextPage: () -> Unit,
     download: (CameraFile) -> Unit,
@@ -164,7 +168,10 @@ private fun Files(
         }
         files.take(20).forEach { file ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${file.name} (${file.size})", modifier = Modifier.weight(1f))
+                val progress = downloading[file.name]
+                val progressText = progress?.let { " • dl=${it}%" } ?: ""
+                val dateText = file.date?.let { " • $it" } ?: ""
+                Text("${file.name} (${file.size}) • ${file.type}$dateText$progressText", modifier = Modifier.weight(1f))
                 Button(onClick = { download(file) }) { Text("Download") }
                 Button(onClick = { open(file) }) { Text("Open") }
                 Button(onClick = { share(file) }) { Text("Share") }

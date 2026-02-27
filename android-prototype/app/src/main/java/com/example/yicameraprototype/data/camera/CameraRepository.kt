@@ -235,12 +235,14 @@ class CameraRepository(private val context: Context) {
                 }
             }
         }.onFailure {
+            _uiState.update { state -> state.copy(downloading = state.downloading - file.name) }
             setError("Download failed: ${it.message}")
             return
         }
 
         _uiState.update {
             it.copy(
+                downloading = it.downloading - file.name,
                 files = it.files.map { current ->
                     if (current.name == file.name) current.copy(downloaded = true) else current
                 }
@@ -405,7 +407,13 @@ class CameraRepository(private val context: Context) {
     private fun applyNotify(param: JsonElement?) {
         val p = param as? JsonObject ?: return
         val recording = (p["record_status"] as? JsonPrimitive)?.contentOrNull == "recording"
-        _uiState.update { it.copy(isRecording = recording) }
+        _uiState.update {
+            it.copy(
+                isRecording = recording,
+                sdCardStatus = (p["sd_card_status"] as? JsonPrimitive)?.contentOrNull ?: it.sdCardStatus,
+                appStatus = (p["app_status"] as? JsonPrimitive)?.contentOrNull ?: it.appStatus
+            )
+        }
         if (recording) startRecordPollingIfNeeded() else stopRecordPolling()
     }
 

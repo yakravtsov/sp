@@ -82,6 +82,8 @@ data class CameraUiState(
     val model: String = "YDXJ_v22",
     val batteryPercent: Int? = null,
     val adapterConnected: Boolean? = null,
+    val sdCardStatus: String? = null,
+    val appStatus: String? = null,
     val isRecording: Boolean = false,
     val settings: List<CameraSetting> = emptyList(),
     val files: List<CameraFile> = emptyList(),
