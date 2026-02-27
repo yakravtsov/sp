@@ -47,15 +47,25 @@ class CameraNetworkBinder(context: Context) {
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     connectivityManager.unregisterNetworkCallback(this)
-                    continuation.resume(Result.success(network))
+                    if (continuation.isActive) {
+                        continuation.resume(Result.success(network))
+                    }
                 }
 
                 override fun onUnavailable() {
-                    continuation.resume(Result.failure(IllegalStateException("Wi‑Fi unavailable")))
+                    if (continuation.isActive) {
+                        continuation.resume(Result.failure(IllegalStateException("Wi‑Fi unavailable")))
+                    }
                 }
             }
 
-            connectivityManager.requestNetwork(request, callback, timeoutMs)
+            runCatching {
+                connectivityManager.requestNetwork(request, callback, timeoutMs)
+            }.onFailure { error ->
+                if (continuation.isActive) {
+                    continuation.resume(Result.failure(error))
+                }
+            }
             continuation.invokeOnCancellation {
                 runCatching { connectivityManager.unregisterNetworkCallback(callback) }
             }

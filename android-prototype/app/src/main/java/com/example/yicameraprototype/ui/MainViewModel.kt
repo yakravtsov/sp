@@ -20,7 +20,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _oneShotIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 8)
     val oneShotIntents: SharedFlow<Intent> = _oneShotIntents
 
-    fun connect() = viewModelScope.launch { repository.connect() }
+    fun connect() = viewModelScope.launch {
+        runCatching { repository.connect() }
+            .onFailure { repository.reportConnectionError(it) }
+    }
     fun disconnect() = viewModelScope.launch { repository.disconnect() }
     fun reconnect(reason: String) = viewModelScope.launch { repository.reconnect(reason) }
 
