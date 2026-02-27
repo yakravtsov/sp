@@ -105,6 +105,13 @@ class CameraRepository(private val context: Context) {
         }
     }
 
+    fun reportConnectionError(error: Throwable) {
+        val message = error.message?.takeIf { it.isNotBlank() }
+            ?: error::class.simpleName
+            ?: "Unknown connection error"
+        setError("Connect failed: $message")
+    }
+
     suspend fun disconnect() {
         isManualDisconnect = true
         stopRecordPolling()
