@@ -18,16 +18,19 @@ import com.example.yicameraprototype.domain.SessionFlags
 import com.example.yicameraprototype.domain.Severity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -52,13 +55,19 @@ class CameraRepository(private val context: Context) {
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
     private val optionsCache = mutableMapOf<String, List<String>>()
+    private val inFlightMutex = Mutex()
     private var autoStartLiveAfterReconnect = false
+    private var isManualDisconnect = false
+    private var reconnectInProgress = false
+    private var recordPollJob: Job? = null
 
     init {
         observeIncoming()
+        observeSocketConnectivity()
     }
 
     suspend fun connect() {
+        isManualDisconnect = false
         transition(ConnectionState.BindingNetwork)
         val network = binder.bindCameraNetwork()
         if (network.isFailure || !binder.isCameraReachable()) {
@@ -69,6 +78,7 @@ class CameraRepository(private val context: Context) {
         if (socketClient.connect().isFailure) {
             return setError("TCP connect failed")
         }
+        log("CameraSocket", Severity.Info, "TCP connected")
 
         transition(ConnectionState.SessionStarting)
         val tokenResult = sessionManager.startSession()
@@ -96,6 +106,8 @@ class CameraRepository(private val context: Context) {
     }
 
     suspend fun disconnect() {
+        isManualDisconnect = true
+        stopRecordPolling()
         autoStartLiveAfterReconnect = false
         onLiveStateChanged(LiveState.Stopped, "manual disconnect")
         sessionManager.stopSession()
@@ -106,11 +118,15 @@ class CameraRepository(private val context: Context) {
     }
 
     suspend fun reconnect(reason: String) {
+        if (reconnectInProgress) return
+        reconnectInProgress = true
         transition(ConnectionState.Reconnecting)
         log("CameraRepository", Severity.Warn, "Reconnect requested: $reason")
         autoStartLiveAfterReconnect = uiState.value.liveState != LiveState.Stopped
         runCatching { disconnect() }
-        connect()
+        isManualDisconnect = false
+        runCatching { connect() }
+        reconnectInProgress = false
     }
 
     suspend fun changeSetting(key: String, value: String) {
@@ -120,13 +136,12 @@ class CameraRepository(private val context: Context) {
             token = token,
             param = JsonObject(mapOf(key to JsonPrimitive(value)))
         )
-        sessionManager.sendAndTrack(request)
-        val response = awaitResponse(request)
+        val response = sendAwaitSingleFlight(request)
         val rval = response?.rval ?: 0
         if (!handleRval(rval, "set $key")) return
 
         if (key == "warp_enable") {
-            sessionManager.sendAndTrack(CameraMessage(msgId = 259, token = token, param = JsonPrimitive("none_force")))
+            sendAwaitSingleFlight(CameraMessage(msgId = 259, token = token, param = JsonPrimitive("none_force")))
         }
         val related = extractRelated(response?.param)
         if (related > 0) refreshSettings()
@@ -139,6 +154,7 @@ class CameraRepository(private val context: Context) {
             return
         }
         sendSimple(513)
+        startRecordPollingIfNeeded()
     }
 
     suspend fun stopRecord() {
@@ -147,6 +163,7 @@ class CameraRepository(private val context: Context) {
             return
         }
         sendSimple(514)
+        stopRecordPolling()
         refreshFiles(uiState.value.fileWindowFrom, uiState.value.fileWindowTo)
     }
 
@@ -165,11 +182,8 @@ class CameraRepository(private val context: Context) {
         val allSettingsRequest = CameraMessage(msgId = 3, token = token)
         val optionsRequest = CameraMessage(msgId = 9, token = token)
 
-        sessionManager.sendAndTrack(allSettingsRequest)
-        sessionManager.sendAndTrack(optionsRequest)
-
-        val settingsResponse = awaitResponse(allSettingsRequest)
-        val optionsResponse = awaitResponse(optionsRequest)
+        val settingsResponse = sendAwaitSingleFlight(allSettingsRequest)
+        val optionsResponse = sendAwaitSingleFlight(optionsRequest)
 
         optionsCache.clear()
         optionsCache.putAll(parseOptions(optionsResponse?.param))
@@ -185,7 +199,7 @@ class CameraRepository(private val context: Context) {
             token = token,
             param = JsonObject(mapOf("path" to JsonPrimitive("/tmp/fuse_d/DCIM"), "from" to JsonPrimitive(from), "to" to JsonPrimitive(to)))
         )
-        sessionManager.sendAndTrack(request)
+        sendAwaitSingleFlight(request)
     }
 
     suspend fun download(file: CameraFile) {
@@ -272,9 +286,14 @@ class CameraRepository(private val context: Context) {
     private suspend fun sendSimple(msgId: Int) {
         val token = uiState.value.token ?: return
         val request = CameraMessage(msgId = msgId, token = token)
-        sessionManager.sendAndTrack(request)
-        val response = awaitResponse(request)
+        val response = sendAwaitSingleFlight(request)
         handleRval(response?.rval ?: 0, "msg_id=$msgId")
+    }
+
+    private suspend fun sendAwaitSingleFlight(request: CameraMessage): CameraMessage? {
+        return inFlightMutex.withLock {
+            sessionManager.sendAndAwait(request).getOrNull()
+        }
     }
 
     private fun observeIncoming() {
@@ -305,13 +324,24 @@ class CameraRepository(private val context: Context) {
         }
     }
 
-    private suspend fun awaitResponse(request: CameraMessage): CameraMessage? =
-        withTimeoutOrNull(2500) {
-            socketClient.incoming.filter { response ->
-                (request.seq != null && response.seq == request.seq) ||
-                    (response.msgId == request.msgId && response.token == request.token)
-            }.first()
+    private fun observeSocketConnectivity() {
+        scope.launch {
+            socketClient.connected
+                .drop(1)
+                .distinctUntilChanged()
+                .collect { connected ->
+                    if (connected) {
+                        log("CameraSocket", Severity.Debug, "socket connected=true")
+                    } else {
+                        log("CameraSocket", Severity.Warn, "socket connected=false")
+                        val hasSession = uiState.value.token != null
+                        if (!isManualDisconnect && hasSession) {
+                            reconnect("tcp disconnected")
+                        }
+                    }
+                }
         }
+    }
 
 
     private fun extractRelated(param: JsonElement?): Int {
@@ -376,6 +406,22 @@ class CameraRepository(private val context: Context) {
         val p = param as? JsonObject ?: return
         val recording = (p["record_status"] as? JsonPrimitive)?.contentOrNull == "recording"
         _uiState.update { it.copy(isRecording = recording) }
+        if (recording) startRecordPollingIfNeeded() else stopRecordPolling()
+    }
+
+    private fun startRecordPollingIfNeeded() {
+        if (recordPollJob?.isActive == true) return
+        recordPollJob = scope.launch {
+            while (uiState.value.isRecording) {
+                sendSimple(16777241)
+                delay(1200)
+            }
+        }
+    }
+
+    private fun stopRecordPolling() {
+        recordPollJob?.cancel()
+        recordPollJob = null
     }
 
     private fun validateSessionFlags(flags: SessionFlags) {
@@ -434,4 +480,3 @@ class CameraRepository(private val context: Context) {
         }
     }
 }
-
