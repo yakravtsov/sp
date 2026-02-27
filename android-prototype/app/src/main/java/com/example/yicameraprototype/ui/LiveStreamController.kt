@@ -32,9 +32,13 @@ class LiveStreamController(context: Context) {
     }
 
     fun start() {
-        player.setMediaItem(MediaItem.fromUri("rtsp://192.168.42.1/live"))
-        player.prepare()
-        player.playWhenReady = true
+        runCatching {
+            player.setMediaItem(MediaItem.fromUri("rtsp://192.168.42.1/live"))
+            player.prepare()
+            player.playWhenReady = true
+        }.onFailure { error ->
+            stateListener?.invoke(LiveState.Error, error.message ?: "Live stream start failed")
+        }
     }
 
     fun stop(reason: String = "manual") {
