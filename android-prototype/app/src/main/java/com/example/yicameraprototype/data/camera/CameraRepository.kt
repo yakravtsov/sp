@@ -69,21 +69,30 @@ class CameraRepository(private val context: Context) {
     suspend fun connect() {
         isManualDisconnect = false
         transition(ConnectionState.BindingNetwork)
-        val network = binder.bindCameraNetwork()
-        if (network.isFailure || !binder.isCameraReachable()) {
-            return setError("Camera network unavailable")
+        val networkResult = binder.bindCameraNetwork()
+        if (networkResult.isFailure) {
+            val reason = networkResult.exceptionOrNull()?.message ?: "unknown reason"
+            return setError("Camera network unavailable: $reason")
+        }
+
+        val network = networkResult.getOrThrow()
+        if (!binder.isCameraReachable(network = network)) {
+            return setError("Camera network unavailable: 192.168.42.1:7878 is unreachable")
         }
 
         transition(ConnectionState.ConnectingTcp)
-        if (socketClient.connect().isFailure) {
-            return setError("TCP connect failed")
+        val socketResult = socketClient.connect()
+        if (socketResult.isFailure) {
+            val reason = socketResult.exceptionOrNull()?.message ?: "unknown reason"
+            return setError("TCP connect failed: $reason")
         }
         log("CameraSocket", Severity.Info, "TCP connected")
 
         transition(ConnectionState.SessionStarting)
         val tokenResult = sessionManager.startSession()
         if (tokenResult.isFailure) {
-            return setError("Start session failed")
+            val reason = tokenResult.exceptionOrNull()?.message ?: "unknown reason"
+            return setError("Start session failed: $reason")
         }
 
         _uiState.update {
