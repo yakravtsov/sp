@@ -76,13 +76,22 @@ class CameraRepository(private val context: Context) {
         }
 
         val network = networkResult.getOrThrow()
-        if (!binder.isCameraReachable(network = network)) {
-            return setError("Camera network unavailable: 192.168.42.1:7878 is unreachable")
+        val reachability = binder.checkCameraReachability(
+            network = network,
+            attempts = 3,
+            connectTimeoutMs = 2200,
+            retryDelayMs = 250
+        )
+        if (reachability.isFailure) {
+            binder.unbind()
+            val reason = reachability.exceptionOrNull()?.message ?: "192.168.42.1:7878 is unreachable"
+            return setError("Camera network unavailable: $reason")
         }
 
         transition(ConnectionState.ConnectingTcp)
         val socketResult = socketClient.connect()
         if (socketResult.isFailure) {
+            binder.unbind()
             val reason = socketResult.exceptionOrNull()?.message ?: "unknown reason"
             return setError("TCP connect failed: $reason")
         }
@@ -91,6 +100,7 @@ class CameraRepository(private val context: Context) {
         transition(ConnectionState.SessionStarting)
         val tokenResult = sessionManager.startSession()
         if (tokenResult.isFailure) {
+            binder.unbind()
             val reason = tokenResult.exceptionOrNull()?.message ?: "unknown reason"
             return setError("Start session failed: $reason")
         }
