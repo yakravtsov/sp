@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -24,6 +27,7 @@ class SessionManager(private val socketClient: CameraSocketClient) {
     private val _flags = MutableStateFlow(SessionFlags())
     private var heartbeatJob: Job? = null
     private var heartbeatWatchdogJob: Job? = null
+    private val inFlightMutex = Mutex()
     private var lastIncomingHeartbeatTs = 0L
     private var lastOutgoingCommandTs = 0L
 
@@ -32,9 +36,7 @@ class SessionManager(private val socketClient: CameraSocketClient) {
 
     suspend fun startSession(): Result<Int> {
         val request = CameraMessage(msgId = 257, token = 0)
-        socketClient.send(request)
-        touchCommandTime()
-        return waitForResponse(request).map { message ->
+        return sendAndAwait(request).map { message ->
             val value = (message.param as? JsonPrimitive)?.intOrNull ?: 0
             _token.value = value
             parseFlags(message)
@@ -54,15 +56,23 @@ class SessionManager(private val socketClient: CameraSocketClient) {
 
     suspend fun initializeCameraForJ22() {
         val currentToken = _token.value ?: return
-        sendAndTrack(CameraMessage(msgId = 3, token = currentToken))
-        sendAndTrack(CameraMessage(msgId = 2, token = currentToken, param = JsonObject(mapOf("camera_clock" to JsonPrimitive(System.currentTimeMillis() / 1000)))))
-        sendAndTrack(CameraMessage(msgId = 259, token = currentToken, param = JsonPrimitive("none_force")))
-        sendAndTrack(CameraMessage(msgId = 9, token = currentToken))
+        sendAndAwait(CameraMessage(msgId = 3, token = currentToken))
+        sendAndAwait(CameraMessage(msgId = 2, token = currentToken, param = JsonObject(mapOf("camera_clock" to JsonPrimitive(System.currentTimeMillis() / 1000)))))
+        sendAndAwait(CameraMessage(msgId = 259, token = currentToken, param = JsonPrimitive("none_force")))
+        sendAndAwait(CameraMessage(msgId = 9, token = currentToken))
     }
 
     suspend fun sendAndTrack(message: CameraMessage) {
         socketClient.send(message)
         touchCommandTime()
+    }
+
+    suspend fun sendAndAwait(message: CameraMessage, timeoutMs: Long = 2500): Result<CameraMessage> {
+        return inFlightMutex.withLock {
+            socketClient.send(message)
+            touchCommandTime()
+            waitForResponse(message, timeoutMs)
+        }
     }
 
     suspend fun handleIncomingHeartbeat(message: CameraMessage) {
@@ -116,14 +126,17 @@ class SessionManager(private val socketClient: CameraSocketClient) {
         )
     }
 
-    private suspend fun waitForResponse(request: CameraMessage): Result<CameraMessage> = runCatching {
-        socketClient.incoming
-            .filter { incoming ->
-                val sameSeq = request.seq != null && incoming.seq != null && request.seq == incoming.seq
-                sameSeq || incoming.msgId == request.msgId
+    private suspend fun waitForResponse(request: CameraMessage, timeoutMs: Long): Result<CameraMessage> =
+        withTimeoutOrNull(timeoutMs) {
+            runCatching {
+                socketClient.incoming
+                    .filter { incoming ->
+                        val sameSeq = request.seq != null && incoming.seq != null && request.seq == incoming.seq
+                        sameSeq || (incoming.msgId == request.msgId && incoming.token == request.token)
+                    }
+                    .first()
             }
-            .first()
-    }
+        } ?: Result.failure(IllegalStateException("timeout waiting response msg_id=${request.msgId}"))
 
     private fun touchCommandTime() {
         lastOutgoingCommandTs = System.currentTimeMillis()
