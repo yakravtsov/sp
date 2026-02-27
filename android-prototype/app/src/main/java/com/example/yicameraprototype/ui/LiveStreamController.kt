@@ -11,27 +11,20 @@ import com.example.yicameraprototype.domain.LiveState
 class LiveStreamController(context: Context) {
     private var stateListener: ((LiveState, String?) -> Unit)? = null
 
-    private val mediaSourceFactory = RtspMediaSource.Factory()
+    private val liveMediaItem = MediaItem.fromUri("rtsp://192.168.42.1/live")
+    private val rtspMediaSourceFactory = RtspMediaSource.Factory()
         .setForceUseRtpTcp(true)
 
-    val player: ExoPlayer = ExoPlayer.Builder(context)
-        .setMediaSourceFactory(
-            androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
-                .setDataSourceFactory(DefaultDataSource.Factory(context))
-                .setRtspMediaSourceFactory(mediaSourceFactory)
-        )
-        .build()
-        .apply {
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    when (playbackState) {
-                        Player.STATE_BUFFERING -> stateListener?.invoke(LiveState.Buffering, null)
-                        Player.STATE_READY -> {
-                            if (playWhenReady) stateListener?.invoke(LiveState.Playing, null)
-                        }
-
-                        Player.STATE_ENDED, Player.STATE_IDLE -> stateListener?.invoke(LiveState.Stopped, null)
+    val player: ExoPlayer = ExoPlayer.Builder(context).build().apply {
+        addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_BUFFERING -> stateListener?.invoke(LiveState.Buffering, null)
+                    Player.STATE_READY -> {
+                        if (playWhenReady) stateListener?.invoke(LiveState.Playing, null)
                     }
+
+                    Player.STATE_ENDED, Player.STATE_IDLE -> stateListener?.invoke(LiveState.Stopped, null)
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -46,7 +39,7 @@ class LiveStreamController(context: Context) {
 
     fun start() {
         runCatching {
-            player.setMediaItem(MediaItem.fromUri("rtsp://192.168.42.1/live"))
+            player.setMediaSource(rtspMediaSourceFactory.createMediaSource(liveMediaItem))
             player.prepare()
             player.playWhenReady = true
         }.onFailure { error ->
