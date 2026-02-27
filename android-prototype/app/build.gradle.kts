@@ -3,16 +3,21 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val compileSdkVersion = rootProject.extra["compileSdk"] as Int
+val minSdkVersion = rootProject.extra["minSdk"] as Int
+val targetSdkVersion = rootProject.extra["targetSdk"] as Int
+val composeCompiler = rootProject.extra["composeCompiler"] as String
+
 android {
     namespace = "com.example.yicameraprototype"
-    compileSdk = 34
+    compileSdk = compileSdkVersion
 
     defaultConfig {
         applicationId = "com.example.yicameraprototype"
-        minSdk = 23
-        targetSdk = 34
+        minSdk = minSdkVersion
+        targetSdk = targetSdkVersion
         versionCode = 1
-        versionName = "0.1"
+        versionName = "0.2"
     }
 
     buildFeatures {
@@ -20,7 +25,30 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
+        kotlinCompilerExtensionVersion = composeCompiler
+    }
+
+    buildTypes {
+        debug {
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
+    flavorDimensions += "channel"
+    productFlavors {
+        create("dev") {
+            dimension = "channel"
+            applicationIdSuffix = ".dev"
+        }
     }
 
     kotlinOptions {

@@ -6,8 +6,12 @@
 
     <application
         android:allowBackup="true"
-        android:label="Yi Camera Prototype"
-        android:supportsRtl="true">
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.YiCameraPrototype">
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">
@@ -16,6 +20,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.example.yicameraprototype.provider"

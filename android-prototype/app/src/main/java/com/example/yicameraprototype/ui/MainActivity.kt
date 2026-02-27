@@ -1,5 +1,6 @@
 package com.example.yicameraprototype.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
@@ -19,13 +20,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
+import com.example.yicameraprototype.domain.CameraFile
 import com.example.yicameraprototype.domain.CameraSetting
 import com.example.yicameraprototype.domain.LiveState
 
@@ -37,10 +41,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 val state by vm.uiState.collectAsState()
-                Column(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+
+                LaunchedEffect(Unit) {
+                    vm.oneShotIntents.collect { intent ->
+                        startActivity(Intent.createChooser(intent, "Open with"))
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text("Connection: ${state.connectionState}")
                     Text("Model: ${state.model}, token=${state.token ?: "-"}")
-                    Text("Live: ${state.liveState}")
+                    Text("Live: ${state.liveState}, recording=${state.isRecording}")
+                    Text("Flags: live=${state.sessionFlags.live}, sdformat=${state.sessionFlags.sdformat}, album=${state.sessionFlags.album}")
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::connect) { Text("Connect") }
                         Button(onClick = vm::disconnect) { Text("Disconnect") }
@@ -48,15 +66,32 @@ class MainActivity : ComponentActivity() {
                         Button(onClick = vm::stopRecord) { Text("Stop Rec") }
                         Button(onClick = vm::takePhoto) { Text("Photo") }
                     }
+
                     LivePlayer(
-                        onState = { vm.updateLiveState(it) },
-                        onError = { vm.updateLiveState(LiveState.Error, it) }
+                        onState = { st, reason -> vm.updateLiveState(st, reason) },
+                        onManualStop = { vm.updateLiveState(LiveState.Stopped, "manual") }
                     )
+
                     Settings(state.settings, vm::setSetting)
-                    Files(state.files.map { it.name }, vm::refreshFiles)
+                    Files(
+                        files = state.files,
+                        refresh = vm::refreshFiles,
+                        nextPage = vm::refreshFilesNextPage,
+                        download = vm::download,
+                        open = vm::open,
+                        share = vm::share
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = vm::pollRecordStatus) { Text("Poll Rec Status") }
+                        Button(onClick = vm::exportLogs) { Text("Export Logs") }
+                    }
+
                     Text("Tech log")
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        items(state.logs) { line -> Text(line) }
+                        items(state.logs) { line ->
+                            Text("${line.tag}/${line.severity}: ${line.message}")
+                        }
                     }
                 }
             }
@@ -66,26 +101,23 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun LivePlayer(
-    onState: (LiveState) -> Unit,
-    onError: (String) -> Unit
+    onState: (LiveState, String?) -> Unit,
+    onManualStop: () -> Unit
 ) {
     val context = LocalContext.current
-    val controller = LiveStreamController(context)
+    val controller = remember { LiveStreamController(context) }
+
     DisposableEffect(Unit) {
+        controller.setStateListener(onState)
         onDispose { controller.release() }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                onState(LiveState.Buffering)
-                runCatching { controller.start() }
-                    .onSuccess { onState(LiveState.Playing) }
-                    .onFailure { onError(it.message ?: "Live error") }
-            }) { Text("Start Live") }
+            Button(onClick = { controller.start() }) { Text("Start Live") }
             Button(onClick = {
                 controller.stop()
-                onState(LiveState.Stopped)
+                onManualStop()
             }) { Text("Stop Live") }
         }
         AndroidView(
@@ -93,10 +125,7 @@ private fun LivePlayer(
                 PlayerView(ctx).apply {
                     useController = true
                     player = controller.player
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        480
-                    )
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 480)
                 }
             }
         )
@@ -109,7 +138,7 @@ private fun Settings(settings: List<CameraSetting>, setValue: (String, String) -
         Text("Settings")
         settings.forEach { setting ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(setting.key, modifier = Modifier.weight(1f))
+                Text("${setting.key}=${setting.value}", modifier = Modifier.weight(1f))
                 setting.options.take(3).forEach { option ->
                     Button(onClick = { setValue(setting.key, option) }) { Text(option) }
                 }
@@ -119,12 +148,27 @@ private fun Settings(settings: List<CameraSetting>, setValue: (String, String) -
 }
 
 @Composable
-private fun Files(files: List<String>, refresh: () -> Unit) {
+private fun Files(
+    files: List<CameraFile>,
+    refresh: () -> Unit,
+    nextPage: () -> Unit,
+    download: (CameraFile) -> Unit,
+    open: (CameraFile) -> Unit,
+    share: (CameraFile) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Files")
             Button(onClick = refresh) { Text("Refresh") }
+            Button(onClick = nextPage) { Text("Next page") }
         }
-        files.take(10).forEach { Text(it) }
+        files.take(20).forEach { file ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${file.name} (${file.size})", modifier = Modifier.weight(1f))
+                Button(onClick = { download(file) }) { Text("Download") }
+                Button(onClick = { open(file) }) { Text("Open") }
+                Button(onClick = { share(file) }) { Text("Share") }
+            }
+        }
     }
 }

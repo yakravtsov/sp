@@ -12,14 +12,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.PrintWriter
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicInteger
 
 class CameraSocketClient(
     private val host: String = "192.168.42.1",
@@ -28,91 +28,125 @@ class CameraSocketClient(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val commandQueue = Channel<CameraMessage>(capacity = Channel.UNLIMITED)
-    private val _incoming = MutableSharedFlow<CameraMessage>(extraBufferCapacity = 64)
+    private val writeMutex = Mutex()
+    private val _incoming = MutableSharedFlow<CameraMessage>(extraBufferCapacity = 256)
     private val _connected = MutableStateFlow(false)
+
     val incoming: SharedFlow<CameraMessage> = _incoming.asSharedFlow()
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
     private var socket: Socket? = null
-    private var writer: PrintWriter? = null
+    private val sequence = AtomicInteger(0)
 
     suspend fun connect(retries: Int = 3): Result<Unit> = withContext(Dispatchers.IO) {
+        var last: Throwable? = null
         repeat(retries) {
-            runCatching {
+            val result = runCatching {
                 socket = Socket().apply {
                     keepAlive = true
                     tcpNoDelay = true
                     soTimeout = 2000
                     connect(InetSocketAddress(host, port), 2000)
                 }
-                writer = PrintWriter(socket!!.getOutputStream(), true)
                 _connected.value = true
                 startReadLoop()
                 startWriteLoop()
-                return@withContext Result.success(Unit)
             }
+            if (result.isSuccess) return@withContext Result.success(Unit)
+            last = result.exceptionOrNull()
+            close()
         }
-        Result.failure(IllegalStateException("Failed to connect to camera TCP socket"))
+        Result.failure(last ?: IllegalStateException("TCP connect failed"))
     }
 
+    fun nextSequence(): Int = sequence.incrementAndGet()
+
     suspend fun send(message: CameraMessage) {
-        commandQueue.send(message)
+        commandQueue.send(if (message.seq == null) message.copy(seq = nextSequence()) else message)
+    }
+
+    suspend fun sendRaw(message: CameraMessage) {
+        writeMutex.withLock {
+            val payload = json.encodeToString(message)
+            socket?.getOutputStream()?.write((payload + "\n").toByteArray())
+            socket?.getOutputStream()?.flush()
+        }
     }
 
     fun close() {
         _connected.value = false
         runCatching { socket?.close() }
         socket = null
-        writer = null
     }
 
     private fun startWriteLoop() {
         scope.launch {
             for (command in commandQueue) {
-                val line = json.encodeToString(command)
-                writer?.println(line)
+                if (!_connected.value) break
+                runCatching { sendRaw(command) }.onFailure {
+                    _connected.value = false
+                }
             }
         }
     }
 
     private fun startReadLoop() {
         scope.launch {
-            val localSocket = socket ?: return@launch
-            val reader = BufferedReader(InputStreamReader(localSocket.getInputStream()))
-            val buffer = StringBuilder()
+            val input = socket?.getInputStream() ?: return@launch
+            val buf = ByteArray(4096)
+            val frameBuffer = StringBuilder()
             while (_connected.value) {
-                val chunk = reader.readLine() ?: break
-                buffer.append(chunk)
-                parseChunkedJson(buffer).forEach { _incoming.emit(it) }
+                val read = runCatching { input.read(buf) }.getOrElse { -1 }
+                if (read <= 0) break
+                frameBuffer.append(String(buf, 0, read))
+                extractJsonFrames(frameBuffer).forEach { raw ->
+                    runCatching { json.decodeFromString<CameraMessage>(raw) }.onSuccess {
+                        _incoming.tryEmit(it)
+                    }
+                }
             }
             _connected.value = false
         }
     }
 
-    private fun parseChunkedJson(buffer: StringBuilder): List<CameraMessage> {
-        val messages = mutableListOf<CameraMessage>()
+    private fun extractJsonFrames(buffer: StringBuilder): List<String> {
+        val out = mutableListOf<String>()
         var depth = 0
         var start = -1
-        var consumedUntil = 0
+        var inString = false
+        var escape = false
+        var consumed = 0
 
-        buffer.forEachIndexed { i, c ->
+        for (i in 0 until buffer.length) {
+            val c = buffer[i]
+            if (inString) {
+                if (escape) {
+                    escape = false
+                } else if (c == '\\') {
+                    escape = true
+                } else if (c == '"') {
+                    inString = false
+                }
+                continue
+            }
+            if (c == '"') {
+                inString = true
+                continue
+            }
             if (c == '{') {
                 if (depth == 0) start = i
                 depth++
-            }
-            if (c == '}') {
-                depth--
+            } else if (c == '}') {
+                if (depth > 0) depth--
                 if (depth == 0 && start >= 0) {
-                    val raw = buffer.substring(start, i + 1)
-                    runCatching { json.decodeFromString<CameraMessage>(raw) }
-                        .onSuccess { messages += it }
-                    consumedUntil = i + 1
+                    out += buffer.substring(start, i + 1)
+                    consumed = i + 1
                     start = -1
                 }
             }
         }
 
-        if (consumedUntil > 0) buffer.delete(0, consumedUntil)
-        return messages
+        if (consumed > 0) buffer.delete(0, consumed)
+        return out
     }
 }
