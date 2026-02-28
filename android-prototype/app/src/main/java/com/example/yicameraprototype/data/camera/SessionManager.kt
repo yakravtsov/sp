@@ -1,144 +1,134 @@
 package com.example.yicameraprototype.data.camera
 
+import android.util.Log
 import com.example.yicameraprototype.domain.CameraMessage
 import com.example.yicameraprototype.domain.SessionFlags
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 
 class SessionManager(private val socketClient: CameraSocketClient) {
-    private val scope = CoroutineScope(Dispatchers.IO)
+    companion object {
+        private const val TAG = "SessionManager"
+        private const val MAX_START_SESSION_RETRIES = 3
+    }
 
     private val _token = MutableStateFlow<Int?>(null)
+    private val _model = MutableStateFlow<String?>(null)
     private val _flags = MutableStateFlow(SessionFlags())
-    private var heartbeatJob: Job? = null
-    private var heartbeatWatchdogJob: Job? = null
     private val inFlightMutex = Mutex()
-    private var lastIncomingHeartbeatTs = 0L
-    private var lastOutgoingCommandTs = 0L
 
     val token: StateFlow<Int?> = _token.asStateFlow()
+    val model: StateFlow<String?> = _model.asStateFlow()
     val flags: StateFlow<SessionFlags> = _flags.asStateFlow()
 
     suspend fun startSession(): Result<Int> {
-        val request = CameraMessage(msgId = 257, token = 0)
-        return sendAndAwait(request).map { message ->
-            val value = (message.param as? JsonPrimitive)?.intOrNull ?: 0
-            _token.value = value
+        var lastError: Throwable? = null
+        repeat(MAX_START_SESSION_RETRIES) { attempt ->
+            Log.d(TAG, "startSession: attempt ${attempt + 1}")
+            val request = CameraMessage(
+                msgId = 257,
+                token = 0,
+                param = JsonPrimitive(0),
+                heartbeat = 1
+            )
+            val result = sendAndAwait(request)
+            val message = result.getOrElse {
+                lastError = it
+                Log.w(TAG, "startSession: attempt ${attempt + 1} failed: ${it.message}")
+                return@repeat
+            }
+            val rval = message.rval ?: 0
+            if (rval == -3) {
+                Log.w(TAG, "startSession: AMBA_UNAVAILABLE (-3), retry after delay")
+                delay(2000L * (attempt + 1))
+                lastError = IllegalStateException("AMBA_UNAVAILABLE")
+                return@repeat
+            }
+            val sessionToken = (message.param as? JsonPrimitive)?.intOrNull
+            if (rval != 0 || sessionToken == null || sessionToken < 0) {
+                lastError = IllegalStateException("Start session rejected: rval=$rval, param=${message.param}")
+                Log.w(TAG, "startSession: ${lastError!!.message}")
+                return@repeat
+            }
+            _token.value = sessionToken
+            _model.value = message.model
             parseFlags(message)
-            startHeartbeat()
-            startHeartbeatWatchdog()
-            value
+            Log.d(TAG, "startSession: token=$sessionToken, model=${message.model}")
+            return Result.success(sessionToken)
         }
+        return Result.failure(lastError ?: IllegalStateException("Start session failed after retries"))
     }
 
     suspend fun stopSession() {
-        socketClient.send(CameraMessage(msgId = 258, token = _token.value ?: 0))
+        val tok = _token.value ?: return
+        socketClient.drainQueue()
+        socketClient.sendPriority(CameraMessage(msgId = 258, token = tok))
+        delay(500)
         _token.value = null
+        _model.value = null
         _flags.value = SessionFlags()
-        heartbeatJob?.cancel()
-        heartbeatWatchdogJob?.cancel()
     }
 
-    suspend fun initializeCameraForJ22() {
-        val currentToken = _token.value ?: return
-        sendAndAwait(CameraMessage(msgId = 3, token = currentToken))
-        sendAndAwait(CameraMessage(msgId = 2, token = currentToken, param = JsonObject(mapOf("camera_clock" to JsonPrimitive(System.currentTimeMillis() / 1000)))))
-        sendAndAwait(CameraMessage(msgId = 259, token = currentToken, param = JsonPrimitive("none_force")))
-        sendAndAwait(CameraMessage(msgId = 9, token = currentToken))
+    suspend fun initializeCamera(): CameraMessage? {
+        val tok = _token.value ?: return null
+        val settingsResponse = sendAndAwait(CameraMessage(msgId = 3, token = tok)).getOrNull()
+        val clockStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
+        sendAndAwait(CameraMessage(
+            msgId = 2, token = tok,
+            type = "camera_clock", param = JsonPrimitive(clockStr)
+        ))
+        sendAndAwait(CameraMessage(
+            msgId = 259, token = tok,
+            param = JsonPrimitive("none_force")
+        ))
+        return settingsResponse
     }
 
-    suspend fun sendAndTrack(message: CameraMessage) {
-        socketClient.send(message)
-        touchCommandTime()
-    }
-
-    suspend fun sendAndAwait(message: CameraMessage, timeoutMs: Long = 2500): Result<CameraMessage> {
+    suspend fun sendAndAwait(message: CameraMessage, timeoutMs: Long = 3000): Result<CameraMessage> {
         return inFlightMutex.withLock {
-            socketClient.send(message)
-            touchCommandTime()
-            waitForResponse(message, timeoutMs)
+            socketClient.enqueue(message)
+            waitForResponse(message.msgId, timeoutMs)
         }
     }
 
-    suspend fun handleIncomingHeartbeat(message: CameraMessage) {
+    fun handleIncomingHeartbeat(message: CameraMessage) {
         if (message.msgId != 1793) return
-        lastIncomingHeartbeatTs = System.currentTimeMillis()
-        socketClient.send(CameraMessage(msgId = 1793, token = _token.value ?: 0))
-    }
-
-    private fun startHeartbeat() {
-        heartbeatJob?.cancel()
-        heartbeatJob = scope.launch {
-            while (true) {
-                delay(1000)
-                val tokenValue = _token.value ?: continue
-                val sinceLastCommand = System.currentTimeMillis() - lastOutgoingCommandTs
-                if (sinceLastCommand >= 5000) {
-                    socketClient.send(CameraMessage(msgId = 16777244, token = tokenValue))
-                    touchCommandTime()
-                }
-            }
-        }
-    }
-
-    private fun startHeartbeatWatchdog() {
-        heartbeatWatchdogJob?.cancel()
-        heartbeatWatchdogJob = scope.launch {
-            while (true) {
-                delay(2000)
-                if (_token.value != null && lastIncomingHeartbeatTs > 0) {
-                    val delta = System.currentTimeMillis() - lastIncomingHeartbeatTs
-                    if (delta > 12000) {
-                        _token.value = null
-                        break
-                    }
-                }
-            }
-        }
+        val tok = _token.value ?: return
+        socketClient.sendPriority(CameraMessage(msgId = 1793, token = tok, rval = 0))
+        socketClient.notifyCanSendNext()
+        Log.d(TAG, "handleIncomingHeartbeat: acked with rval=0, canSendNext=true")
     }
 
     private fun parseFlags(message: CameraMessage) {
-        val p = message.param as? JsonObject ?: return
         _flags.value = SessionFlags(
-            album = (p["album"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            fwupdate = (p["fwupdate"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            mvrecover = (p["mvrecover"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            sdformat = (p["sdformat"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            sdoptimize = (p["sdoptimize"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            usbstorage = (p["usbstorage"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            voiceControl = (p["voice_control"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            live = (p["live"] as? JsonPrimitive)?.booleanOrNull ?: false
+            album = message.album == 1,
+            fwupdate = message.fwupdate == 1,
+            mvrecover = message.mvrecover == 1,
+            sdformat = message.sdformat == 1,
+            sdoptimize = message.sdoptimize == 1,
+            usbstorage = message.usbstorage == 1,
+            voiceControl = message.voiceControl == 1,
+            live = message.live == 1
         )
     }
 
-    private suspend fun waitForResponse(request: CameraMessage, timeoutMs: Long): Result<CameraMessage> =
+    private suspend fun waitForResponse(msgId: Int, timeoutMs: Long): Result<CameraMessage> =
         withTimeoutOrNull(timeoutMs) {
             runCatching {
                 socketClient.incoming
-                    .filter { incoming ->
-                        val sameSeq = request.seq != null && incoming.seq != null && request.seq == incoming.seq
-                        sameSeq || (incoming.msgId == request.msgId && incoming.token == request.token)
-                    }
+                    .filter { it.msgId == msgId }
                     .first()
             }
-        } ?: Result.failure(IllegalStateException("timeout waiting response msg_id=${request.msgId}"))
-
-    private fun touchCommandTime() {
-        lastOutgoingCommandTs = System.currentTimeMillis()
-    }
+        } ?: Result.failure(IllegalStateException("timeout waiting response msg_id=$msgId"))
 }

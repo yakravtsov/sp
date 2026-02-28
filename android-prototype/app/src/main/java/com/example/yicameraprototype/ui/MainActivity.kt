@@ -8,32 +8,52 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.yicameraprototype.domain.CameraFile
 import com.example.yicameraprototype.domain.CameraSetting
 import com.example.yicameraprototype.domain.LiveState
+import okhttp3.OkHttpClient
 
 class MainActivity : ComponentActivity() {
     private val vm by viewModels<MainViewModel>()
@@ -101,8 +121,10 @@ class MainActivity : ComponentActivity() {
 
                         item {
                             LivePlayer(
-                                onState = { st, reason -> vm.updateLiveState(st, reason) },
-                                onManualStop = { vm.updateLiveState(LiveState.Stopped, "manual") }
+                                player = vm.player,
+                                liveState = state.liveState,
+                                onStartLive = vm::startLive,
+                                onStopLive = vm::stopLive
                             )
                         }
 
@@ -117,8 +139,7 @@ class MainActivity : ComponentActivity() {
                                 refresh = vm::refreshFiles,
                                 nextPage = vm::refreshFilesNextPage,
                                 download = vm::download,
-                                open = vm::open,
-                                share = vm::share
+                                httpClient = vm.cameraHttpClient
                             )
                         }
 
@@ -135,25 +156,16 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun LivePlayer(
-    onState: (LiveState, String?) -> Unit,
-    onManualStop: () -> Unit
+    player: ExoPlayer,
+    liveState: LiveState,
+    onStartLive: () -> Unit,
+    onStopLive: () -> Unit
 ) {
-    val context = LocalContext.current
-    val controller = remember { LiveStreamController(context) }
-
-    DisposableEffect(Unit) {
-        controller.setStateListener(onState)
-        onDispose { controller.release() }
-    }
-
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Live", style = MaterialTheme.typography.titleMedium)
+        Text("Live ($liveState)", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Button(onClick = { controller.start() }, modifier = Modifier.weight(1f)) { Text("Start Live") }
-            Button(onClick = {
-                controller.stop()
-                onManualStop()
-            }, modifier = Modifier.weight(1f)) { Text("Stop Live") }
+            Button(onClick = onStartLive, modifier = Modifier.weight(1f)) { Text("Start Live") }
+            Button(onClick = onStopLive, modifier = Modifier.weight(1f)) { Text("Stop Live") }
         }
         AndroidView(
             modifier = Modifier
@@ -161,33 +173,73 @@ private fun LivePlayer(
                 .height(220.dp),
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    useController = true
-                    player = controller.player
+                    useController = false
+                    this.player = player
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 }
-            }
+            },
+            update = { view -> view.player = player }
         )
     }
 }
 
 @Composable
 private fun Settings(settings: List<CameraSetting>, setValue: (String, String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Settings", style = MaterialTheme.typography.titleMedium)
         settings.forEach { setting ->
-            Text("${setting.key}=${setting.value}")
-            setting.options.chunked(3).forEach { rowOptions ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    rowOptions.forEach { option ->
-                        Button(onClick = { setValue(setting.key, option) }, modifier = Modifier.weight(1f)) { Text(option) }
-                    }
-                    repeat(3 - rowOptions.size) {
-                        Column(modifier = Modifier.weight(1f)) {}
+            val isToggle = setting.options.sorted() == listOf("off", "on") ||
+                    setting.options.sorted() == listOf("OFF", "ON")
+
+            if (isToggle) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(setting.key, style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = setting.value.equals("on", ignoreCase = true),
+                        onCheckedChange = { checked ->
+                            setValue(setting.key, if (checked) "on" else "off")
+                        }
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(setting.key, style = MaterialTheme.typography.bodyMedium)
+                    Box {
+                        var expanded by remember { mutableStateOf(false) }
+                        OutlinedButton(onClick = { expanded = true }) {
+                            Text(setting.value)
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            setting.options.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option) },
+                                    onClick = {
+                                        expanded = false
+                                        setValue(setting.key, option)
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private fun fileToHttpUrl(path: String): String {
+    return "http://192.168.42.1" + path.removePrefix("/tmp/fuse_d")
 }
 
 @Composable
@@ -197,26 +249,92 @@ private fun Files(
     refresh: () -> Unit,
     nextPage: () -> Unit,
     download: (CameraFile) -> Unit,
-    open: (CameraFile) -> Unit,
-    share: (CameraFile) -> Unit
+    httpClient: OkHttpClient
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Files", style = MaterialTheme.typography.titleMedium)
+    val context = LocalContext.current
+    val imageLoader = remember(httpClient) {
+        coil.ImageLoader.Builder(context)
+            .okHttpClient(httpClient)
+            .crossfade(true)
+            .build()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Files (${files.size})", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(onClick = refresh, modifier = Modifier.weight(1f)) { Text("Refresh") }
             Button(onClick = nextPage, modifier = Modifier.weight(1f)) { Text("Next page") }
         }
 
-        files.take(20).forEach { file ->
-            val progress = downloading[file.name]
-            val progressText = progress?.let { " • dl=${it}%" } ?: ""
-            val dateText = file.date?.let { " • $it" } ?: ""
-            Text("${file.name} (${file.size}) • ${file.type}$dateText$progressText")
+        files.chunked(2).forEach { rowFiles ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                rowFiles.forEach { file ->
+                    val progress = downloading[file.name]
+                    FileCard(
+                        file = file,
+                        progress = progress,
+                        imageLoader = imageLoader,
+                        onDownload = { download(file) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowFiles.size == 1) {
+                    Box(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { download(file) }, modifier = Modifier.weight(1f)) { Text("Download") }
-                Button(onClick = { open(file) }, modifier = Modifier.weight(1f)) { Text("Open") }
-                Button(onClick = { share(file) }, modifier = Modifier.weight(1f)) { Text("Share") }
+@Composable
+private fun FileCard(
+    file: CameraFile,
+    progress: Int?,
+    imageLoader: coil.ImageLoader,
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val thumbUrl = fileToHttpUrl(file.path) + "?type=thumb"
+
+    Card(modifier = modifier) {
+        Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(thumbUrl)
+                    .crossfade(true)
+                    .build(),
+                imageLoader = imageLoader,
+                contentDescription = file.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+            Text(
+                text = file.name,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress / 100f },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("${progress}%", style = MaterialTheme.typography.labelSmall)
+            } else {
+                Button(
+                    onClick = onDownload,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = ButtonDefaults.TextButtonContentPadding
+                ) {
+                    Text(if (file.downloaded) "Downloaded" else "Download", style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }

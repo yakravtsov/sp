@@ -38,7 +38,26 @@ data class CameraMessage(
     val rval: Int? = null,
     val type: String? = null,
     val param: JsonElement? = null,
-    val seq: Int? = null
+    val heartbeat: Int? = null,
+    val model: String? = null,
+    val value: JsonElement? = null,
+    val from: Int? = null,
+    val to: Int? = null,
+    val md5sum: String? = null,
+    val size: Long? = null,
+    val offset: Long? = null,
+    val related: JsonElement? = null,
+    val album: Int? = null,
+    val fwupdate: Int? = null,
+    val mvrecover: Int? = null,
+    val sdformat: Int? = null,
+    val sdoptimize: Int? = null,
+    val usbstorage: Int? = null,
+    @SerialName("voice_control") val voiceControl: Int? = null,
+    val live: Int? = null,
+    val options: JsonElement? = null,
+    val permission: String? = null,
+    val listing: JsonElement? = null
 )
 
 data class CameraSetting(

@@ -21,14 +21,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
@@ -43,23 +44,59 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 class CameraRepository(private val context: Context) {
+    companion object {
+        private const val TAG = "CameraRepository"
+        private val OPTIONS_TO_QUERY = listOf(
+            "video_resolution", "photo_size", "video_standard", "video_quality",
+            "video_stamp", "photo_stamp", "photo_quality",
+            "meter_mode", "led_mode", "buzzer_volume",
+            "auto_low_light", "auto_power_off", "video_rotate",
+            "video_output_dev_type", "capture_default_mode", "system_default_mode",
+            "precise_selftime", "burst_capture_number", "precise_cont_time",
+            "timelapse_video", "timelapse_video_duration", "timelapse_video_resolution",
+            "record_photo_time", "rc_button_mode", "osd_enable", "warp_enable",
+            "rec_default_mode"
+        )
+        private val DISPLAYED_SETTINGS = listOf(
+            "video_resolution", "video_quality", "video_standard", "warp_enable",
+            "photo_size", "photo_quality", "capture_default_mode", "rec_default_mode",
+            "system_default_mode", "auto_low_light", "video_rotate", "osd_enable",
+            "buzzer_volume", "led_mode", "auto_power_off", "meter_mode"
+        )
+        private const val RECORD_POLL_INTERVAL_MS = 800L
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val binder = CameraNetworkBinder(context)
     private val socketClient = CameraSocketClient()
     private val sessionManager = SessionManager(socketClient)
-    private val httpClient = OkHttpClient()
+
+    init {
+        socketClient.onMessageReceived = null
+    }
+
+    var httpClient = OkHttpClient()
+        private set
+    @Volatile private var cameraNetwork: android.net.Network? = null
 
     private val _uiState = MutableStateFlow(CameraUiState())
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
-    private val optionsCache = mutableMapOf<String, List<String>>()
+    private val settingsCache = ConcurrentHashMap<String, String>()
+    private val optionsCache = ConcurrentHashMap<String, List<String>>()
     private val inFlightMutex = Mutex()
     private var autoStartLiveAfterReconnect = false
     private var isManualDisconnect = false
     private var reconnectInProgress = false
+    private var connectInProgress = false
+    private var reconnectCount = 0
+    private val maxReconnectAttempts = 3
     private var recordPollJob: Job? = null
+    @Volatile private var albumMode = false
+    @Volatile private var vfStopSignal: CompletableDeferred<Unit>? = null
 
     init {
         observeIncoming()
@@ -67,39 +104,40 @@ class CameraRepository(private val context: Context) {
     }
 
     suspend fun connect() {
+        log(TAG, Severity.Info, "connect() called")
         isManualDisconnect = false
+        connectInProgress = true
+        reconnectCount = 0
         transition(ConnectionState.BindingNetwork)
         val networkResult = binder.bindCameraNetwork()
         if (networkResult.isFailure) {
+            connectInProgress = false
             val reason = networkResult.exceptionOrNull()?.message ?: "unknown reason"
             return setError("Camera network unavailable: $reason")
         }
 
         val network = networkResult.getOrThrow()
-        val reachability = binder.checkCameraReachability(
-            network = network,
-            attempts = 8,
-            connectTimeoutMs = 2500,
-            retryDelayMs = 500
-        )
-        if (reachability.isFailure) {
-            binder.unbind()
-            val reason = reachability.exceptionOrNull()?.message ?: "192.168.42.1:7878 is unreachable"
-            return setError("Camera network unavailable: $reason")
-        }
-
+        cameraNetwork = network
+        httpClient = OkHttpClient.Builder()
+            .socketFactory(network.socketFactory)
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
         transition(ConnectionState.ConnectingTcp)
-        val socketResult = socketClient.connect()
+        val socketResult = socketClient.connect(network)
         if (socketResult.isFailure) {
+            connectInProgress = false
             binder.unbind()
             val reason = socketResult.exceptionOrNull()?.message ?: "unknown reason"
             return setError("TCP connect failed: $reason")
         }
-        log("CameraSocket", Severity.Info, "TCP connected")
+        log(TAG, Severity.Info, "TCP connected")
+        delay(100)
 
         transition(ConnectionState.SessionStarting)
         val tokenResult = sessionManager.startSession()
         if (tokenResult.isFailure) {
+            connectInProgress = false
             binder.unbind()
             val reason = tokenResult.exceptionOrNull()?.message ?: "unknown reason"
             return setError("Start session failed: $reason")
@@ -108,6 +146,7 @@ class CameraRepository(private val context: Context) {
         _uiState.update {
             it.copy(
                 token = tokenResult.getOrNull(),
+                model = sessionManager.model.value ?: "unknown",
                 sessionFlags = sessionManager.flags.value,
                 connectionState = ConnectionState.SessionActive,
                 error = null
@@ -115,16 +154,25 @@ class CameraRepository(private val context: Context) {
         }
 
         transition(ConnectionState.Initializing)
-        sessionManager.initializeCameraForJ22()
-        refreshSettings()
+        val initSettings = sessionManager.initializeCamera()
+        val initParam = initSettings?.param
+        if (initParam != null) {
+            parseAllSettings(initParam)
+            rebuildUiSettings()
+        }
+        fetchOptionsForKnownSettings()
         refreshFiles(0, 60)
+        connectInProgress = false
+        reconnectCount = 0
         transition(ConnectionState.CameraReady)
+        log(TAG, Severity.Info, "connect() complete, autoStartLive=$autoStartLiveAfterReconnect")
         if (autoStartLiveAfterReconnect) {
             onLiveStateChanged(LiveState.Buffering, "auto-reconnect")
         }
     }
 
     fun reportConnectionError(error: Throwable) {
+        connectInProgress = false
         val message = error.message?.takeIf { it.isNotBlank() }
             ?: error::class.simpleName
             ?: "Unknown connection error"
@@ -132,60 +180,90 @@ class CameraRepository(private val context: Context) {
     }
 
     suspend fun disconnect() {
+        log(TAG, Severity.Info, "disconnect() called, isManual=true")
         isManualDisconnect = true
+        connectInProgress = false
         stopRecordPolling()
         autoStartLiveAfterReconnect = false
         onLiveStateChanged(LiveState.Stopped, "manual disconnect")
         sessionManager.stopSession()
         socketClient.close()
         binder.unbind()
+        settingsCache.clear()
+        optionsCache.clear()
+        albumMode = false
         _uiState.update { CameraUiState() }
-        log("CameraRepository", Severity.Info, "Disconnected")
+        log(TAG, Severity.Info, "Disconnected")
     }
 
     suspend fun reconnect(reason: String) {
-        if (reconnectInProgress) return
+        if (reconnectInProgress || connectInProgress) return
+        reconnectCount++
+        if (reconnectCount > maxReconnectAttempts) {
+            log(TAG, Severity.Error, "Reconnect limit ($maxReconnectAttempts) reached, giving up")
+            setError("Reconnect limit reached")
+            return
+        }
         reconnectInProgress = true
         transition(ConnectionState.Reconnecting)
-        log("CameraRepository", Severity.Warn, "Reconnect requested: $reason")
+        log(TAG, Severity.Warn, "Reconnect requested: $reason (attempt $reconnectCount/$maxReconnectAttempts)")
         autoStartLiveAfterReconnect = uiState.value.liveState != LiveState.Stopped
-        runCatching { disconnect() }
-        isManualDisconnect = false
-        runCatching { connect() }
-        reconnectInProgress = false
+        try {
+            runCatching { disconnect() }
+            isManualDisconnect = false
+            delay(2000)
+            runCatching { connect() }
+        } finally {
+            reconnectInProgress = false
+        }
     }
 
     suspend fun changeSetting(key: String, value: String) {
+        log(TAG, Severity.Debug, "changeSetting key=$key value=$value")
         val token = uiState.value.token ?: return
+
+        // Stop VF before changing setting to avoid AMBA_DEV_BUSY (-21)
+        // Camera acks STOP_VF fast but actually stops VF ~500ms later (async notification)
+        val signal = CompletableDeferred<Unit>()
+        vfStopSignal = signal
+        sendAwaitSingleFlight(CameraMessage(msgId = 260, token = token))
+        // Wait for actual vf_stop notification from camera, timeout 2s
+        withTimeoutOrNull(2000) { signal.await() }
+        vfStopSignal = null
+
         val request = CameraMessage(
             msgId = 2,
             token = token,
-            param = JsonObject(mapOf(key to JsonPrimitive(value)))
+            type = key,
+            param = JsonPrimitive(value)
         )
         val response = sendAwaitSingleFlight(request)
         val rval = response?.rval ?: 0
-        if (!handleRval(rval, "set $key")) return
 
-        if (key == "warp_enable") {
-            sendAwaitSingleFlight(CameraMessage(msgId = 259, token = token, param = JsonPrimitive("none_force")))
-        }
-        val related = extractRelated(response?.param)
-        if (related > 0) refreshSettings()
-        refreshSettings()
+        // Restart VF regardless of result
+        sendAwaitSingleFlight(CameraMessage(
+            msgId = 259, token = token,
+            param = JsonPrimitive("none_force")
+        ))
+
+        if (!handleRval(rval, "set $key")) return
+        settingsCache[key] = value
+        rebuildUiSettings()
     }
 
     suspend fun startRecord() {
+        log(TAG, Severity.Debug, "startRecord()")
         if (uiState.value.isRecording) {
-            log("CameraRepository", Severity.Warn, "Start record skipped: already recording")
+            log(TAG, Severity.Warn, "Start record skipped: already recording")
             return
         }
         sendSimple(513)
-        startRecordPollingIfNeeded()
     }
 
     suspend fun stopRecord() {
+        log(TAG, Severity.Debug, "stopRecord()")
         if (!uiState.value.isRecording) {
-            log("CameraRepository", Severity.Warn, "Stop record skipped: not recording")
+            log(TAG, Severity.Warn, "Stop record skipped: not recording")
             return
         }
         sendSimple(514)
@@ -194,38 +272,56 @@ class CameraRepository(private val context: Context) {
     }
 
     suspend fun takePhoto() {
-        sendSimple(16777220)
+        log(TAG, Severity.Debug, "takePhoto()")
+        sendSimple(769)
+        delay(500)
         refreshFiles(uiState.value.fileWindowFrom, uiState.value.fileWindowTo)
     }
 
     suspend fun pollRecordStatus() {
         if (!uiState.value.isRecording) return
-        sendSimple(16777241)
+        sendSimple(515)
     }
 
     suspend fun refreshSettings() {
-        val token = uiState.value.token ?: return
-        val allSettingsRequest = CameraMessage(msgId = 3, token = token)
-        val optionsRequest = CameraMessage(msgId = 9, token = token)
-
-        val settingsResponse = sendAwaitSingleFlight(allSettingsRequest)
-        val optionsResponse = sendAwaitSingleFlight(optionsRequest)
-
-        optionsCache.clear()
-        optionsCache.putAll(parseOptions(optionsResponse?.param))
-
-        _uiState.update { it.copy(settings = parseSettings(settingsResponse?.param, optionsCache)) }
+        fetchAllSettings()
     }
 
     suspend fun refreshFiles(from: Int, to: Int) {
         val token = uiState.value.token ?: return
         _uiState.update { it.copy(fileWindowFrom = from, fileWindowTo = to) }
+        val basePath = "/tmp/fuse_d/DCIM"
+        val dirs = listDirectory(token, basePath, 0, 100)
+        val allFiles = mutableListOf<CameraFile>()
+        for (dir in dirs) {
+            if (!dir.endsWith("/")) continue
+            val dirPath = "$basePath/$dir".trimEnd('/')
+            val entries = listDirectory(token, dirPath, from, to)
+            for (entry in entries) {
+                if (entry.endsWith("/")) continue
+                allFiles += CameraFile(
+                    path = "$dirPath/$entry",
+                    name = entry,
+                    size = 0L,
+                    type = inferType(entry)
+                )
+            }
+        }
+        allFiles.sortByDescending { it.name }
+        _uiState.update { it.copy(files = allFiles) }
+        log(TAG, Severity.Debug, "refreshFiles: found ${allFiles.size} files in ${dirs.size} dirs")
+    }
+
+    private suspend fun listDirectory(token: Int, path: String, from: Int, to: Int): List<String> {
         val request = CameraMessage(
             msgId = 1282,
             token = token,
-            param = JsonObject(mapOf("path" to JsonPrimitive("/tmp/fuse_d/DCIM"), "from" to JsonPrimitive(from), "to" to JsonPrimitive(to)))
+            param = JsonPrimitive(path),
+            from = from,
+            to = to
         )
-        sendAwaitSingleFlight(request)
+        val response = sendAwaitSingleFlight(request) ?: return emptyList()
+        return parseListing(response.listing)
     }
 
     suspend fun download(file: CameraFile) {
@@ -235,34 +331,61 @@ class CameraRepository(private val context: Context) {
             return
         }
 
-        val request = Request.Builder().url("http://192.168.42.1/DCIM/${file.name}").build()
+        val token = uiState.value.token ?: return
+        val httpPath = file.path.removePrefix("/tmp/fuse_d")
+        val url = "http://192.168.42.1$httpPath"
+        log(TAG, Severity.Debug, "download url=$url network=${cameraNetwork != null}")
+
+        // Stop VF so camera HTTP server can serve files
+        val signal = CompletableDeferred<Unit>()
+        vfStopSignal = signal
+        sendAwaitSingleFlight(CameraMessage(msgId = 260, token = token))
+        withTimeoutOrNull(2000) { signal.await() }
+        vfStopSignal = null
+
+        val request = Request.Builder().url(url).build()
         _uiState.update { it.copy(downloading = it.downloading + (file.name to 0)) }
 
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) error("HTTP ${response.code}")
-                val body = response.body ?: error("empty body")
-                val total = body.contentLength().coerceAtLeast(1)
+        val downloadResult = runCatching {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errBody = response.body?.string()?.take(200) ?: ""
+                        error("HTTP ${response.code} ${response.message} body=$errBody")
+                    }
+                    val body = response.body ?: error("empty body")
+                    val total = body.contentLength().coerceAtLeast(1)
 
-                body.byteStream().use { input ->
-                    target.outputStream().use { output ->
-                        val buf = ByteArray(8192)
-                        var copied = 0L
-                        while (true) {
-                            val read = input.read(buf)
-                            if (read <= 0) break
-                            output.write(buf, 0, read)
-                            copied += read
-                            _uiState.update {
-                                it.copy(downloading = it.downloading + (file.name to ((copied * 100 / total).toInt())))
+                    body.byteStream().use { input ->
+                        target.outputStream().use { output ->
+                            val buf = ByteArray(8192)
+                            var copied = 0L
+                            while (true) {
+                                val read = input.read(buf)
+                                if (read <= 0) break
+                                output.write(buf, 0, read)
+                                copied += read
+                                _uiState.update {
+                                    it.copy(downloading = it.downloading + (file.name to ((copied * 100 / total).toInt())))
+                                }
                             }
                         }
                     }
                 }
             }
-        }.onFailure {
+        }
+
+        // Restart VF regardless of download result
+        sendAwaitSingleFlight(CameraMessage(
+            msgId = 259, token = token,
+            param = JsonPrimitive("none_force")
+        ))
+
+        downloadResult.onFailure { e ->
             _uiState.update { state -> state.copy(downloading = state.downloading - file.name) }
-            setError("Download failed: ${it.message}")
+            log(TAG, Severity.Error, "Download failed: ${e::class.simpleName}: ${e.message}")
+            android.util.Log.e(TAG, "Download stacktrace", e)
+            _uiState.update { it.copy(error = "Download failed: ${e::class.simpleName}: ${e.message}") }
             return
         }
 
@@ -274,7 +397,7 @@ class CameraRepository(private val context: Context) {
                 }
             )
         }
-        log("CameraRepository", Severity.Info, "Downloaded ${file.name} -> ${target.absolutePath}")
+        log(TAG, Severity.Info, "Downloaded ${file.name} -> ${target.absolutePath}")
     }
 
     fun open(file: CameraFile): Intent {
@@ -311,7 +434,10 @@ class CameraRepository(private val context: Context) {
         log("Live", Severity.Info, "state=$state reason=${reason.orEmpty()}")
     }
 
+    // --- Private: send helpers ---
+
     private suspend fun sendSimple(msgId: Int) {
+        log(TAG, Severity.Debug, "sendSimple msgId=$msgId")
         val token = uiState.value.token ?: return
         val request = CameraMessage(msgId = msgId, token = token)
         val response = sendAwaitSingleFlight(request)
@@ -324,26 +450,190 @@ class CameraRepository(private val context: Context) {
         }
     }
 
+    // --- Private: settings ---
+
+    private suspend fun fetchAllSettings() {
+        val token = uiState.value.token ?: return
+        val response = sendAwaitSingleFlight(CameraMessage(msgId = 3, token = token))
+        val param = response?.param ?: return
+        parseAllSettings(param)
+        rebuildUiSettings()
+    }
+
+    private suspend fun fetchOptionsForKnownSettings() {
+        val token = uiState.value.token ?: return
+        for (settingName in OPTIONS_TO_QUERY) {
+            val response = sendAwaitSingleFlight(CameraMessage(
+                msgId = 9,
+                token = token,
+                param = JsonPrimitive(settingName)
+            )) ?: continue
+            parseOptionResponse(settingName, response)
+        }
+        rebuildUiSettings()
+    }
+
+    private fun parseAllSettings(param: JsonElement) {
+        val arr = param as? JsonArray ?: return
+        for (item in arr) {
+            val obj = item as? JsonObject ?: continue
+            for ((key, value) in obj) {
+                val strValue = (value as? JsonPrimitive)?.contentOrNull ?: continue
+                if (!albumMode) {
+                    settingsCache[key] = strValue
+                }
+            }
+        }
+    }
+
+    private fun parseOptionResponse(settingName: String, message: CameraMessage) {
+        val options = (message.options as? JsonArray)
+            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        if (!options.isNullOrEmpty()) {
+            optionsCache[settingName] = options
+        }
+    }
+
+    private fun rebuildUiSettings() {
+        val result = DISPLAYED_SETTINGS.mapNotNull { key ->
+            val value = settingsCache[key] ?: return@mapNotNull null
+            CameraSetting(
+                key = key,
+                value = value,
+                options = optionsCache[key].orEmpty()
+            )
+        }
+        _uiState.update { it.copy(settings = result) }
+    }
+
+    // --- Private: notifications (msg_id=7) ---
+
+    private fun handleNotification(message: CameraMessage) {
+        val notifType = message.type ?: return
+        val paramStr = (message.param as? JsonPrimitive)?.contentOrNull
+        val valueStr = (message.value as? JsonPrimitive)?.contentOrNull
+
+        log(TAG, Severity.Info, "notify type=$notifType param=$paramStr value=$valueStr")
+
+        when (notifType) {
+            "start_video_record" -> {
+                _uiState.update { it.copy(isRecording = true) }
+                startRecordPollingIfNeeded()
+            }
+            "video_record_complete" -> {
+                _uiState.update { it.copy(isRecording = false) }
+                stopRecordPolling()
+            }
+            "start_photo_capture" -> {
+                _uiState.update { it.copy(appStatus = "capture") }
+            }
+            "photo_taken", "burst_complete", "precise_cont_complete" -> {
+                _uiState.update { it.copy(appStatus = "idle") }
+            }
+            "sd_card_status" -> {
+                _uiState.update { it.copy(sdCardStatus = paramStr) }
+            }
+            "CARD_NOT_EXIST", "CARD_REMOVED" -> {
+                _uiState.update { it.copy(sdCardStatus = "remove") }
+            }
+            "STORAGE_RUNOUT" -> {
+                setError("SD card storage full")
+            }
+            "battery" -> {
+                val percent = paramStr?.toIntOrNull()
+                if (percent != null) {
+                    _uiState.update { it.copy(batteryPercent = percent) }
+                }
+            }
+            "adapter_status" -> {
+                _uiState.update { it.copy(adapterConnected = paramStr == "1") }
+            }
+            "switch_to_cap_mode" -> {
+                if (!albumMode) settingsCache["system_mode"] = "capture"
+                rebuildUiSettings()
+            }
+            "switch_to_rec_mode" -> {
+                if (!albumMode) settingsCache["system_mode"] = "record"
+                rebuildUiSettings()
+            }
+            "setting_changed" -> {
+                val settingKey = paramStr ?: return
+                val newValue = valueStr ?: return
+                if (!albumMode) {
+                    settingsCache[settingKey] = newValue
+                }
+                applyRelatedSettings(message.related)
+                rebuildUiSettings()
+            }
+            "enter_album" -> {
+                albumMode = true
+            }
+            "exit_album" -> {
+                albumMode = false
+            }
+            "start_usb_storage", "enter_usb_storage" -> {
+                scope.launch { reconnect("USB storage mode") }
+            }
+            "start_fwupdate", "enter_fwupdate" -> {
+                scope.launch { reconnect("FW update mode") }
+            }
+            "wifi_will_shutdown" -> {
+                scope.launch { reconnect("WiFi shutdown") }
+            }
+            "vf_start" -> log(TAG, Severity.Debug, "Viewfinder started")
+            "vf_stop" -> {
+                log(TAG, Severity.Debug, "Viewfinder stopped")
+                vfStopSignal?.complete(Unit)
+            }
+            "rec_time" -> {
+                // record time update from camera (seconds)
+            }
+        }
+    }
+
+    private fun applyRelatedSettings(related: JsonElement?) {
+        val arr = related as? JsonArray ?: return
+        for (item in arr) {
+            val obj = item as? JsonObject ?: continue
+            for ((key, value) in obj) {
+                val strValue = (value as? JsonPrimitive)?.contentOrNull ?: continue
+                if (!albumMode) {
+                    settingsCache[key] = strValue
+                }
+            }
+        }
+    }
+
+    // --- Private: incoming message observer ---
+
     private fun observeIncoming() {
         scope.launch {
             socketClient.incoming.collect { msg ->
                 when (msg.msgId) {
-                    7 -> {
-                        applyNotify(msg.param)
-                        log("CameraRepository", Severity.Info, "notify ${msg.param}")
-                    }
-                    13 -> {
-                        parseBattery(msg.param)
-                    }
+                    7 -> handleNotification(msg)
                     1793 -> {
                         sessionManager.handleIncomingHeartbeat(msg)
-                        log("SessionManager", Severity.Debug, "incoming heartbeat acked")
                     }
                     1282 -> {
-                        _uiState.update { it.copy(files = parseFiles(msg.param)) }
+                        // file listing handled in refreshFiles directly
+                    }
+                    13 -> {
+                        val battery = (msg.param as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+                        if (battery != null) {
+                            _uiState.update { it.copy(batteryPercent = battery) }
+                        }
                     }
                 }
-                if (msg.rval != null) handleRval(msg.rval, "incoming msg_id=${msg.msgId}")
+                // canSendNext on any response (except heartbeat, handled in SessionManager)
+                if (msg.msgId != 1793 && msg.msgId != 7) {
+                    socketClient.notifyCanSendNext()
+                }
+                // rval error handling (skip heartbeat — camera may not support 16777244)
+                val rval = msg.rval
+                if (rval != null && rval != 0 && msg.msgId != 16777244) {
+                    log(TAG, Severity.Warn, "rval=$rval for msg_id=${msg.msgId}")
+                    handleRval(rval, "incoming msg_id=${msg.msgId}")
+                }
                 if (msg.msgId == 257) {
                     _uiState.update { it.copy(sessionFlags = sessionManager.flags.value) }
                     validateSessionFlags(sessionManager.flags.value)
@@ -359,10 +649,10 @@ class CameraRepository(private val context: Context) {
                 .distinctUntilChanged()
                 .collect { connected ->
                     if (connected) {
-                        log("CameraSocket", Severity.Debug, "socket connected=true")
+                        log(TAG, Severity.Debug, "socket connected=true")
                     } else {
-                        log("CameraSocket", Severity.Warn, "socket connected=false")
                         val hasSession = uiState.value.token != null
+                        log(TAG, Severity.Warn, "socket connected=false, hasSession=$hasSession, isManual=$isManualDisconnect")
                         if (!isManualDisconnect && hasSession) {
                             reconnect("tcp disconnected")
                         }
@@ -371,46 +661,13 @@ class CameraRepository(private val context: Context) {
         }
     }
 
+    // --- Private: file parsing ---
 
-    private fun extractRelated(param: JsonElement?): Int {
-        val p = param as? JsonObject ?: return 0
-        return (p["related"] as? JsonPrimitive)?.intOrNull ?: 0
-    }
-
-    private fun parseSettings(param: JsonElement?, optionsByKey: Map<String, List<String>>): List<CameraSetting> {
-        val obj = param as? JsonObject ?: return emptyList()
-        val supported = listOf("video_resolution", "video_quality", "video_standard", "warp_enable", "photo_size", "photo_quality")
-        return supported.mapNotNull { key ->
-            val value = (obj[key] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
-            CameraSetting(
-                key = key,
-                value = value,
-                options = optionsByKey[key].orEmpty(),
-                related = (obj["related"] as? JsonPrimitive)?.intOrNull ?: 0
-            )
-        }
-    }
-
-    private fun parseOptions(param: JsonElement?): Map<String, List<String>> {
-        val root = param as? JsonObject ?: return emptyMap()
-        return root.mapValues { (_, value) ->
-            (value as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
-        }
-    }
-
-    private fun parseFiles(param: JsonElement?): List<CameraFile> {
-        val obj = param as? JsonObject ?: return emptyList()
-        val list = (obj["listing"] as? JsonArray) ?: (obj["files"] as? JsonArray) ?: return emptyList()
-        return list.mapNotNull {
-            val o = it as? JsonObject ?: return@mapNotNull null
-            val name = (o["name"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
-            CameraFile(
-                path = (o["path"] as? JsonPrimitive)?.contentOrNull ?: "/tmp/fuse_d/DCIM/$name",
-                name = name,
-                size = (o["size"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: 0L,
-                type = (o["type"] as? JsonPrimitive)?.contentOrNull ?: inferType(name),
-                date = (o["date"] as? JsonPrimitive)?.contentOrNull
-            )
+    private fun parseListing(listing: JsonElement?): List<String> {
+        val arr = listing as? JsonArray ?: return emptyList()
+        return arr.flatMap { item ->
+            val obj = item as? JsonObject ?: return@flatMap emptyList()
+            obj.keys.toList()
         }
     }
 
@@ -420,35 +677,14 @@ class CameraRepository(private val context: Context) {
         else -> "unknown"
     }
 
-    private fun parseBattery(param: JsonElement?) {
-        val p = param as? JsonObject ?: return
-        _uiState.update {
-            it.copy(
-                batteryPercent = (p["battery"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull(),
-                adapterConnected = (p["adapter_status"] as? JsonPrimitive)?.contentOrNull == "1"
-            )
-        }
-    }
-
-    private fun applyNotify(param: JsonElement?) {
-        val p = param as? JsonObject ?: return
-        val recording = (p["record_status"] as? JsonPrimitive)?.contentOrNull == "recording"
-        _uiState.update {
-            it.copy(
-                isRecording = recording,
-                sdCardStatus = (p["sd_card_status"] as? JsonPrimitive)?.contentOrNull ?: it.sdCardStatus,
-                appStatus = (p["app_status"] as? JsonPrimitive)?.contentOrNull ?: it.appStatus
-            )
-        }
-        if (recording) startRecordPollingIfNeeded() else stopRecordPolling()
-    }
+    // --- Private: record polling ---
 
     private fun startRecordPollingIfNeeded() {
         if (recordPollJob?.isActive == true) return
         recordPollJob = scope.launch {
             while (uiState.value.isRecording) {
-                sendSimple(16777241)
-                delay(1200)
+                sendSimple(515)
+                delay(RECORD_POLL_INTERVAL_MS)
             }
         }
     }
@@ -458,9 +694,14 @@ class CameraRepository(private val context: Context) {
         recordPollJob = null
     }
 
+    // --- Private: rval / error handling ---
+
     private fun validateSessionFlags(flags: SessionFlags) {
-        if (!flags.live) {
-            log("SessionManager", Severity.Warn, "Session flag live=false")
+        if (flags.usbstorage) {
+            scope.launch { reconnect("USB storage active") }
+        }
+        if (flags.fwupdate) {
+            scope.launch { reconnect("FW update active") }
         }
     }
 
@@ -468,17 +709,18 @@ class CameraRepository(private val context: Context) {
         return when (rval) {
             0 -> true
             -21 -> {
-                log("CameraRepository", Severity.Warn, "$context busy (-21), retry in 400ms")
-                delay(400)
-                true
+                log(TAG, Severity.Warn, "$context busy (-21)")
+                false
             }
             -4 -> {
-                log("SessionManager", Severity.Warn, "$context token invalid (-4), reconnect")
-                reconnect("token invalid")
+                log(TAG, Severity.Warn, "$context session lost (-4), reconnect")
+                reconnect("session lost")
                 false
             }
             -3 -> {
-                setError("$context invalid parameter (-3)")
+                log(TAG, Severity.Error, "$context AMBA_UNAVAILABLE (-3), closing session")
+                setError("$context: AMBA_UNAVAILABLE")
+                scope.launch { disconnect() }
                 false
             }
             else -> {
@@ -488,6 +730,8 @@ class CameraRepository(private val context: Context) {
         }
     }
 
+    // --- Private: utility ---
+
     private fun hasEnoughSpace(requiredBytes: Long, atDir: File): Boolean {
         val stat = StatFs(atDir.absolutePath)
         val freeBytes = stat.availableBytes
@@ -496,7 +740,7 @@ class CameraRepository(private val context: Context) {
 
     private fun transition(next: ConnectionState) {
         _uiState.update { it.copy(connectionState = next, error = null) }
-        log("CameraRepository", Severity.Info, "state->$next")
+        log(TAG, Severity.Info, "state->$next")
     }
 
     private fun setError(message: String) {
@@ -508,10 +752,16 @@ class CameraRepository(private val context: Context) {
         if (shouldMarkLiveError) {
             onLiveStateChanged(LiveState.Error, message)
         }
-        log("CameraRepository", Severity.Error, message)
+        log(TAG, Severity.Error, message)
     }
 
     private fun log(tag: String, severity: Severity, message: String) {
+        when (severity) {
+            Severity.Debug -> android.util.Log.d(tag, message)
+            Severity.Info -> android.util.Log.i(tag, message)
+            Severity.Warn -> android.util.Log.w(tag, message)
+            Severity.Error -> android.util.Log.e(tag, message)
+        }
         _uiState.update {
             it.copy(logs = (it.logs + DebugLogEntry(System.currentTimeMillis(), tag, severity, message)).takeLast(400))
         }

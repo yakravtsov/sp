@@ -17,7 +17,8 @@ class CameraNetworkBinder(context: Context) {
 
     suspend fun bindCameraNetwork(timeoutMs: Int = 7000, retries: Int = 3): Result<Network> {
         connectivityManager.activeNetwork?.let { activeNetwork ->
-            if (isCameraReachable(network = activeNetwork)) {
+            val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
                 connectivityManager.bindProcessToNetwork(activeNetwork)
                 return Result.success(activeNetwork)
             }
@@ -31,7 +32,7 @@ class CameraNetworkBinder(context: Context) {
                 return Result.success(network)
             }
         }
-        return Result.failure(IllegalStateException("Camera Wi‑Fi is unavailable"))
+        return Result.failure(IllegalStateException("Wi‑Fi network is unavailable"))
     }
 
     fun unbind() {
