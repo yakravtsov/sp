@@ -52,7 +52,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.yicameraprototype.domain.CameraFile
 import com.example.yicameraprototype.domain.CameraSetting
+import com.example.yicameraprototype.domain.ConnectionState
 import com.example.yicameraprototype.domain.LiveState
+import com.example.yicameraprototype.ui.theme.YiCameraPrototypeTheme
 import okhttp3.OkHttpClient
 
 class MainActivity : ComponentActivity() {
@@ -61,7 +63,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            YiCameraPrototypeTheme {
                 val state by vm.uiState.collectAsState()
 
                 LaunchedEffect(Unit) {
@@ -81,7 +83,7 @@ class MainActivity : ComponentActivity() {
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        item { Text("Camera Control", style = MaterialTheme.typography.headlineSmall) }
+                        /*item { Text("Camera Control", style = MaterialTheme.typography.headlineSmall) }*/
 
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -98,24 +100,50 @@ class MainActivity : ComponentActivity() {
                             Text("Connection controls", style = MaterialTheme.typography.titleMedium)
                         }
                         item {
+                            val connState = state.connectionState
+                            val isConnecting = connState == ConnectionState.BindingNetwork ||
+                                connState == ConnectionState.ConnectingTcp ||
+                                connState == ConnectionState.SessionStarting ||
+                                connState == ConnectionState.Initializing ||
+                                connState == ConnectionState.Reconnecting
+                            val isConnected = connState == ConnectionState.Connected ||
+                                connState == ConnectionState.SessionActive ||
+                                connState == ConnectionState.CameraReady
+
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(onClick = vm::connect, modifier = Modifier.weight(1f)) { Text("Connect") }
-                                Button(onClick = vm::disconnect, modifier = Modifier.weight(1f)) { Text("Disconnect") }
+                                Button(
+                                    onClick = { if (isConnected) vm.disconnect() else vm.connect() },
+                                    enabled = !isConnecting,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        when {
+                                            isConnecting -> "Connecting…"
+                                            isConnected -> "Disconnect"
+                                            else -> "Connect"
+                                        }
+                                    )
+                                }
                             }
                         }
 
                         item { Text("Capture controls", style = MaterialTheme.typography.titleMedium) }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(onClick = vm::startRecord, modifier = Modifier.weight(1f)) { Text("Start Rec") }
-                                Button(onClick = vm::stopRecord, modifier = Modifier.weight(1f)) { Text("Stop Rec") }
+                                Button(
+                                    onClick = { if (state.isRecording) vm.stopRecord() else vm.startRecord() },
+                                    enabled = state.connectionState == ConnectionState.CameraReady,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (state.isRecording) "Stop Rec" else "Start Rec")
+                                }
                             }
                         }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(onClick = vm::takePhoto, modifier = Modifier.weight(1f)) { Text("Photo") }
-                                Button(onClick = vm::pollRecordStatus, modifier = Modifier.weight(1f)) { Text("Poll Rec") }
-                                Button(onClick = vm::exportLogs, modifier = Modifier.weight(1f)) { Text("Export Logs") }
+                                Button(onClick = { vm.takePhoto() }, modifier = Modifier.weight(1f)) { Text("Photo") }
+                                Button(onClick = { vm.pollRecordStatus() }, modifier = Modifier.weight(1f)) { Text("Poll Rec") }
+                                /*Button(onClick = vm::exportLogs, modifier = Modifier.weight(1f)) { Text("Export Logs") }*/
                             }
                         }
 
