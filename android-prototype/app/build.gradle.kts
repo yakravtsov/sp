@@ -58,6 +58,10 @@ android {
             dimension = "channel"
             applicationIdSuffix = ".dev"
         }
+        create("uilab") {
+            dimension = "channel"
+            applicationIdSuffix = ".uilab"
+        }
     }
 
     kotlinOptions {
@@ -82,4 +86,5 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-rtsp:1.4.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.1")
 }

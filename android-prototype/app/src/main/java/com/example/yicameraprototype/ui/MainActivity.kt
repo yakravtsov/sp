@@ -60,6 +60,11 @@ import okhttp3.OkHttpClient
 class MainActivity : ComponentActivity() {
     private val vm by viewModels<MainViewModel>()
 
+    override fun onResume() {
+        super.onResume()
+        vm.onAppResumed()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -83,7 +88,6 @@ class MainActivity : ComponentActivity() {
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        /*item { Text("Camera Control", style = MaterialTheme.typography.headlineSmall) }*/
 
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -99,6 +103,17 @@ class MainActivity : ComponentActivity() {
                         item {
                             Text("Connection controls", style = MaterialTheme.typography.titleMedium)
                         }
+
+                        item {
+                            val ssid by vm.wifiSsid.collectAsState()
+                            Text(
+                                text = ssid ?: "WiFi не подключен",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (ssid != null) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.error
+                            )
+                        }
+
                         item {
                             val connState = state.connectionState
                             val isConnecting = connState == ConnectionState.BindingNetwork ||

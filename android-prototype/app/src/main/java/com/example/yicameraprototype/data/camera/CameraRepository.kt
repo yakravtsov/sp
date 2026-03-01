@@ -89,7 +89,8 @@ class CameraRepository(private val context: Context) {
     private val optionsCache = ConcurrentHashMap<String, List<String>>()
     private val inFlightMutex = Mutex()
     private var autoStartLiveAfterReconnect = false
-    private var isManualDisconnect = false
+    @Volatile var isManualDisconnect = false
+        private set
     private var reconnectInProgress = false
     private var connectInProgress = false
     private var reconnectCount = 0

@@ -1,7 +1,13 @@
 package com.example.yicameraprototype.ui
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,8 +18,10 @@ import com.example.yicameraprototype.domain.CameraUiState
 import com.example.yicameraprototype.domain.ConnectionState
 import com.example.yicameraprototype.domain.LiveState
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -32,6 +40,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _oneShotIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 8)
     val oneShotIntents: SharedFlow<Intent> = _oneShotIntents
+
+    private val _wifiSsid = MutableStateFlow<String?>(null)
+    val wifiSsid: StateFlow<String?> = _wifiSsid.asStateFlow()
 
     init {
         liveController.setStateListener { state, reason -> updateLiveState(state, reason) }
@@ -63,6 +74,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun reconnect(reason: String) = viewModelScope.launch {
         Log.d(TAG, ">> reconnect reason=$reason")
         repository.reconnect(reason)
+    }
+
+    fun onAppResumed() {
+        viewModelScope.launch {
+            val ssid = getWifiSsid()
+            _wifiSsid.value = ssid
+
+            val state = uiState.value.connectionState
+
+            val isConnecting = state == ConnectionState.BindingNetwork ||
+                state == ConnectionState.ConnectingTcp ||
+                state == ConnectionState.SessionStarting ||
+                state == ConnectionState.Initializing ||
+                state == ConnectionState.Reconnecting
+            if (isConnecting) return@launch
+
+            val isConnected = state == ConnectionState.Connected ||
+                state == ConnectionState.SessionActive ||
+                state == ConnectionState.CameraReady
+
+            if (!isConnected
+                && (state == ConnectionState.Disconnected || state == ConnectionState.Error)
+                && !repository.isManualDisconnect
+                && ssid != null
+            ) {
+                Log.d(TAG, "Auto-connecting on resume (WiFi: $ssid)")
+                runCatching { repository.connect() }
+                    .onFailure { repository.reportConnectionError(it) }
+            }
+        }
+    }
+
+    private fun getWifiSsid(): String? {
+        val context = getApplication<Application>().applicationContext
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return null
+        val caps = cm.getNetworkCapabilities(network) ?: return null
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
+
+        val ssidFromCaps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (caps.transportInfo as? WifiInfo)?.ssid
+        } else {
+            null
+        }
+
+        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        @Suppress("DEPRECATION")
+        val ssidFromWifiManager = wifiManager.connectionInfo?.ssid
+
+        val ssid = ssidFromCaps ?: ssidFromWifiManager
+        return if (ssid.isNullOrBlank() || ssid == "<unknown ssid>" || ssid == "0x") {
+            "WiFi подключен"
+        } else {
+            ssid.trim('"')
+        }
     }
 
     fun setSetting(key: String, value: String) = viewModelScope.launch {
