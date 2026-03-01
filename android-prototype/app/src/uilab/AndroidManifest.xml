@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- Disable main launcher from base manifest -->
+        <activity
+            android:name="com.example.yicameraprototype.ui.MainActivity"
+            android:exported="true"
+            tools:node="merge">
+            <intent-filter tools:node="removeAll" />
+        </activity>
+
+        <!-- UI Lab launcher -->
+        <activity
+            android:name="com.example.yicameraprototype.uilab.UiLabActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
